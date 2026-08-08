@@ -20,6 +20,9 @@ Game ghép-3 (match-3) theo phong cách bắn súng, dùng asset "Cartoon Cat De
 - **Bàn cờ dùng chung, đánh theo lượt**, bot dùng đúng hiệu ứng trượt ô mượt khi ghép giống người chơi
 - **Đồng hồ thời gian 3 phút cho CẢ HAI BÊN** (không phải mỗi lượt) — chỉ chạy khi tới lượt của bên đó, đổi lượt không hồi lại, chỉ ghép viên Năng Lượng mới cộng thêm giây (tối đa 3:00). Hết giờ giữa lượt là thua ngay
 - **Hệ thống Skill 3 cấp độ, mỗi mèo một bộ kỹ năng RIÊNG BIỆT hoàn toàn** (không dùng chung công thức): ghép viên "Skill" (ô sao) để tích cọc (tối đa 3), dùng cọc kích hoạt skill cấp 1/2/3 — cấp 1 rẻ nhất/yếu nhất, cấp 3 tốn nhất/mạnh nhất. Toàn bộ 15 mèo × 3 cấp = 45 hiệu ứng khác nhau, gồm: bắn nhiều phát, nổ vùng ngẫu nhiên trên bàn cờ (2x2 → 5x5), hút hết 1 loại ô trên bàn cờ, khiên miễn nhiễm sát thương, phản đòn, độc dược (mất % HP theo lượt), hút máu địch, hồi máu vượt ngưỡng (overheal), triệu hồi mèo đấm bốc hỗ trợ, buff nhân sát thương nhiều lượt, cộng thêm lượt đánh — xem chi tiết từng mèo trong `src/lib/skills.ts`
+- **1 nút Kỹ Năng duy nhất** ngay dưới khung chiến trường — bấm vào mới xổ ra 3 lựa chọn cấp độ, đỡ chiếm chỗ màn hình
+- **Icon trạng thái đang hoạt động** hiện ngay trong thẻ trạng thái nhân vật: 🛡️ miễn sát thương, 🔁 phản đòn, 🔥 tăng sát thương nhiều lượt, ⚡ đòn tiếp theo tăng sát thương, 🥊 mèo đấm bốc hỗ trợ, ☠️ trúng độc (bên địch) — kèm số lượt/số lần còn lại
+- **Xem trước nhân vật**: chạm vào 1 mèo ở màn chọn đội hình sẽ mở bảng xem trước — coi hoạt ảnh Đứng yên/Bắn/Gục ngã và đọc mô tả cả 3 skill trước khi chọn
 - **Thêm lượt khi ghép lớn**: ghép 4 viên +1 lượt, ghép 5 viên +2 lượt (cả 2 bên)
 - **Gợi ý nước đi**: nếu bạn không thao tác gì trong 10 giây, 2 ô có thể ghép được sẽ nhấp nháy gợi ý
 - **Nút Tạm Dừng** dùng khung/nút thật từ asset, dừng cả đồng hồ lẫn AI

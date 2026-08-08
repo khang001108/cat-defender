@@ -60,6 +60,7 @@ export default function BattleScreen({
   const [enemyShield, setEnemyShield] = useState(0);
   const [enemyMp, setEnemyMp] = useState(0);
   const [skillPips, setSkillPips] = useState(0);
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [fullBlockHits, setFullBlockHits] = useState(0);
   const [reflectStatus, setReflectStatus] = useState<{ turnsLeft: number; mult: number } | null>(null);
   const [poisonStatus, setPoisonStatus] = useState<{ percent: number; turnsLeft: number } | null>(null);
@@ -639,6 +640,15 @@ export default function BattleScreen({
               <span key={p} className={`h-2.5 flex-1 rounded-full ${skillPips >= p ? "skill-pip-fill bg-purple-400" : "bg-slate-800"}`} />
             ))}
           </div>
+          {(fullBlockHits > 0 || (reflectStatus && reflectStatus.turnsLeft > 0) || buffDamageMult || buffNextAttackMult || boxingCatTurns > 0) && (
+            <div className="flex flex-wrap items-center gap-1 pt-0.5">
+              {fullBlockHits > 0 && <StatusBadge icon="🛡️" label={`x${fullBlockHits}`} title="Miễn sát thương" />}
+              {reflectStatus && reflectStatus.turnsLeft > 0 && <StatusBadge icon="🔁" label={`${reflectStatus.turnsLeft}`} title="Phản đòn" />}
+              {buffDamageMult && <StatusBadge icon="🔥" label={`x${buffDamageMult.mult}·${buffDamageMult.turnsLeft}`} title="Tăng sát thương" />}
+              {buffNextAttackMult && <StatusBadge icon="⚡" label={`x${buffNextAttackMult}`} title="Đòn tiếp theo tăng sát thương" />}
+              {boxingCatTurns > 0 && <StatusBadge icon="🥊" label={`${boxingCatTurns}`} title="Mèo đấm bốc hỗ trợ" />}
+            </div>
+          )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-xl border border-red-700/50 bg-slate-900/80 p-2">
           <div className="flex items-center gap-2">
@@ -664,6 +674,11 @@ export default function BattleScreen({
             </div>
             <span className="shrink-0 text-[10px] text-amber-300">⏱</span>
           </div>
+          {poisonStatus && poisonStatus.turnsLeft > 0 && (
+            <div className="flex justify-end pt-0.5">
+              <StatusBadge icon="☠️" label={`${poisonStatus.turnsLeft}`} title="Trúng độc" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -712,6 +727,48 @@ export default function BattleScreen({
         ))}
       </div>
 
+      {/* Single skill button right under the battlefield map — tap to reveal the 3 tiers */}
+      <div className="relative">
+        <button
+          onClick={() => setSkillMenuOpen((v) => !v)}
+          disabled={skillPips === 0}
+          className={`flex w-full items-center justify-center gap-2 rounded-xl border py-2.5 font-bold transition ${
+            skillPips > 0 ? "border-purple-500 bg-purple-900/50 text-purple-100 hover:bg-purple-800/60" : "border-slate-700 bg-slate-900/40 text-slate-500"
+          }`}
+        >
+          <span>⚡ Kỹ Năng</span>
+          <span className="flex gap-1">
+            {[1, 2, 3].map((p) => (
+              <span key={p} className={`h-2 w-2 rounded-full ${skillPips >= p ? "bg-purple-300" : "bg-slate-700"}`} />
+            ))}
+          </span>
+        </button>
+        {skillMenuOpen && (
+          <div className="absolute inset-x-0 top-full z-30 mt-1 grid grid-cols-3 gap-1.5 rounded-xl border border-purple-600 bg-slate-950 p-2 shadow-2xl">
+            {skillTiers.map((tier) => {
+              const usable = skillPips >= tier.cost && turn === "player" && phase === "fighting" && !busy && !paused;
+              return (
+                <button
+                  key={tier.tier}
+                  onClick={() => {
+                    useSkill(tier);
+                    setSkillMenuOpen(false);
+                  }}
+                  disabled={!usable}
+                  className={`rounded-lg border p-1.5 text-center transition ${
+                    usable ? "border-purple-500 bg-purple-900/40 hover:bg-purple-800/50" : "border-slate-700 bg-slate-900/40 opacity-50"
+                  }`}
+                >
+                  <p className="truncate text-[10px] font-bold text-purple-200">{tier.name}</p>
+                  <p className="truncate text-[8px] text-slate-400">{tier.desc}</p>
+                  <p className="mt-0.5 text-[9px] text-purple-300">{tier.cost} pip</p>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <Match3Grid
         board={board}
         onSwap={handleSwap}
@@ -731,26 +788,6 @@ export default function BattleScreen({
             <p className="truncate text-[8px] text-slate-400">{s.desc}</p>
           </div>
         ))}
-      </div>
-
-      <div className="grid grid-cols-3 gap-1.5">
-        {skillTiers.map((tier) => {
-          const usable = skillPips >= tier.cost && turn === "player" && phase === "fighting" && !busy && !paused;
-          return (
-            <button
-              key={tier.tier}
-              onClick={() => useSkill(tier)}
-              disabled={!usable}
-              className={`rounded-lg border p-1.5 text-center transition ${
-                usable ? "border-purple-500 bg-purple-900/40 hover:bg-purple-800/50" : "border-slate-700 bg-slate-900/40 opacity-50"
-              }`}
-            >
-              <p className="truncate text-[10px] font-bold text-purple-200">{tier.name}</p>
-              <p className="truncate text-[8px] text-slate-400">{tier.desc}</p>
-              <p className="mt-0.5 text-[9px] text-purple-300">{tier.cost} pip</p>
-            </button>
-          );
-        })}
       </div>
 
       {phase !== "fighting" && (
@@ -791,6 +828,15 @@ export default function BattleScreen({
         </div>
       )}
     </div>
+  );
+}
+
+function StatusBadge({ icon, label, title }: { icon: string; label: string; title: string }) {
+  return (
+    <span title={title} className="flex items-center gap-0.5 rounded-full border border-slate-600 bg-slate-950/80 px-1.5 py-0.5 text-[9px] font-semibold text-slate-200">
+      <span>{icon}</span>
+      <span>{label}</span>
+    </span>
   );
 }
 

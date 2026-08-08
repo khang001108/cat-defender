@@ -13,6 +13,7 @@ import SettingsScreen from "@/components/SettingsScreen";
 import InfoScreen from "@/components/InfoScreen";
 import MultiplayerScreen from "@/components/MultiplayerScreen";
 import ShopScreen from "@/components/ShopScreen";
+import CatPreviewModal from "@/components/CatPreviewModal";
 
 type View =
   | "menu" | "login" | "settings" | "info" | "multiplayer" | "shop"
@@ -26,6 +27,7 @@ export default function Home() {
 
   const [teamSize, setTeamSize] = useState(1);
   const [pickedCats, setPickedCats] = useState<CatDefinition[]>([]);
+  const [previewCat, setPreviewCat] = useState<CatDefinition | null>(null);
   const [map, setMap] = useState(MAPS[0]);
   const [enemyTeam, setEnemyTeam] = useState<EnemyDefinition[]>([]);
   const [lastResult, setLastResult] = useState<boolean | null>(null);
@@ -168,6 +170,7 @@ export default function Home() {
         <h2 className="text-center text-lg font-bold text-amber-300">
           Chọn {teamSize} mèo ({pickedCats.length}/{teamSize})
         </h2>
+        <p className="-mt-2 text-[10px] text-slate-500">Chạm vào 1 mèo để xem trước hoạt ảnh &amp; kỹ năng</p>
         <div className="grid grid-cols-3 gap-2.5 pb-4">
           {CATS.map((c) => {
             const picked = pickedCats.some((p) => p.id === c.id);
@@ -175,10 +178,7 @@ export default function Home() {
             return (
               <button
                 key={c.id}
-                onClick={() => {
-                  if (picked) setPickedCats((arr) => arr.filter((p) => p.id !== c.id));
-                  else if (pickedCats.length < teamSize) setPickedCats((arr) => [...arr, c]);
-                }}
+                onClick={() => setPreviewCat(c)}
                 className={`flex flex-col items-center gap-1 overflow-hidden rounded-xl border p-2 ${picked ? "border-amber-400 bg-amber-900/30" : "border-slate-700 bg-slate-900"}`}
               >
                 <AnimatedSprite src={c.sprite.idle.src} frames={c.sprite.idle.frames} fps={8} className="h-16 w-16 bg-contain bg-center bg-no-repeat" />
@@ -188,6 +188,19 @@ export default function Home() {
             );
           })}
         </div>
+        {previewCat && (
+          <CatPreviewModal
+            cat={effectiveCat(previewCat)}
+            picked={pickedCats.some((p) => p.id === previewCat.id)}
+            onToggle={() => {
+              const picked = pickedCats.some((p) => p.id === previewCat.id);
+              if (picked) setPickedCats((arr) => arr.filter((p) => p.id !== previewCat.id));
+              else if (pickedCats.length < teamSize) setPickedCats((arr) => [...arr, previewCat]);
+              setPreviewCat(null);
+            }}
+            onClose={() => setPreviewCat(null)}
+          />
+        )}
         {pickedCats.length === teamSize && (
           <button
             onClick={() => {
