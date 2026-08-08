@@ -20,6 +20,22 @@ export function ImpactBurst({ type, style }: { type: TileType; style?: React.CSS
   );
 }
 
+export function ImpactHit() {
+  return (
+    <div className="pointer-events-none absolute left-[18%] top-1/2 z-20 h-14 w-14 -translate-y-1/2">
+      <div
+        className="h-full w-full"
+        style={{
+          backgroundImage: "url(/sprites/impact_fx.png)",
+          backgroundSize: "1000% 100%",
+          backgroundRepeat: "no-repeat",
+          animation: "sprite-play 0.4s steps(9) forwards",
+        }}
+      />
+    </div>
+  );
+}
+
 export function Bullet({ direction, crit }: { direction: "right" | "left"; crit?: boolean }) {
   return (
     <div

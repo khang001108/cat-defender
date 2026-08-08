@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { Board, createBoard, cloneBoard, swapCells, findMatches, resolveMatches, findBestMove } from "@/lib/board";
 import { BattleLogEntry, CatDefinition, EnemyDefinition, TileType } from "@/lib/types";
 import Match3Grid, { Burst } from "./Match3Grid";
-import { FloatingNumber, Bullet } from "./Effects";
+import { FloatingNumber, Bullet, ImpactHit } from "./Effects";
 import { TileIcon } from "./TileIcon";
 import AnimatedSprite from "./AnimatedSprite";
 
@@ -14,7 +15,7 @@ type CatPose = "idle" | "shoot" | "dead";
 type EnemyPose = "idle" | "attack" | "dead";
 
 const ENEMY_MAX_MP = 100;
-const DISPLAY_MAX_TIME = 30; // seconds, just for the bar-fill percentage
+const MAX_TIME = 180; // 3 minutes total for the whole match — the hard cap energy tiles can refill up to
 const TIME_PER_ENERGY_TILE = 4; // seconds gained per matched energy tile
 
 const SKILL_LEGEND: { type: TileType; name: string; desc: string }[] = [
@@ -37,12 +38,13 @@ export default function BattleScreen({
 }) {
   const [board, setBoard] = useState<Board>(() => createBoard());
   const [hp, setHp] = useState(cat.hp);
-  const [timeBank, setTimeBank] = useState(Math.round(cat.mp / 5));
+  const [timeBank, setTimeBank] = useState(MAX_TIME);
   const [shield, setShield] = useState(0);
   const [enemyHp, setEnemyHp] = useState(enemy.hp);
   const [enemyMp, setEnemyMp] = useState(0);
   const [enemyShield, setEnemyShield] = useState(0);
   const [score, setScore] = useState(0);
+  const [paused, setPaused] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("fighting");
@@ -72,6 +74,8 @@ export default function BattleScreen({
   const floaterId = useRef(0);
   const [bullets, setBullets] = useState<{ id: number; direction: "left" | "right"; crit: boolean }[]>([]);
   const bulletId = useRef(0);
+  const [impacts, setImpacts] = useState<number[]>([]);
+  const impactId = useRef(0);
 
   const [fallingCells, setFallingCells] = useState<{ r: number; c: number }[]>([]);
   const [updateTick, setUpdateTick] = useState(0);
@@ -94,6 +98,12 @@ export default function BattleScreen({
     setTimeout(() => setBullets((b) => b.filter((x) => x.id !== id)), 350);
   }
 
+  function spawnImpact() {
+    const id = impactId.current++;
+    setImpacts((i) => [...i, id]);
+    setTimeout(() => setImpacts((i) => i.filter((x) => x !== id)), 500);
+  }
+
   function pushLog(text: string, kind: BattleLogEntry["kind"]) {
     setLog((l) => [...l.slice(-30), { id: logId.current++, text, kind }]);
   }
@@ -112,12 +122,12 @@ export default function BattleScreen({
   // ---- Time bank: ticks down continuously during the player's turn. Turns changing hands does
   // NOT refill it — only matching energy tiles does. Hits 0 -> instant defeat. ----
   useEffect(() => {
-    if (turn !== "player" || phase !== "fighting" || busy) return;
+    if (turn !== "player" || phase !== "fighting" || busy || paused) return;
     const interval = setInterval(() => {
       setTimeBank((t) => Math.max(0, t - 0.1));
     }, 100);
     return () => clearInterval(interval);
-  }, [turn, phase, busy]);
+  }, [turn, phase, busy, paused]);
 
   useEffect(() => {
     if (timeBank <= 0 && phase === "fighting") {
@@ -129,7 +139,7 @@ export default function BattleScreen({
 
   // ---- AI turn trigger ----
   useEffect(() => {
-    if (turn !== "enemy" || phase !== "fighting" || busy) return;
+    if (turn !== "enemy" || phase !== "fighting" || busy || paused) return;
     const t = setTimeout(() => {
       const move = findBestMove(board, { attack: 3, mana: 1 });
       if (!move) return;
@@ -142,7 +152,7 @@ export default function BattleScreen({
   }, [turn, phase, busy, board]);
 
   async function handleSwap(r1: number, c1: number, r2: number, c2: number) {
-    if (busy || phase !== "fighting" || turn !== "player") return;
+    if (busy || phase !== "fighting" || turn !== "player" || paused) return;
     const test = cloneBoard(board);
     swapCells(test, r1, c1, r2, c2);
     if (findMatches(test).length === 0) return;
@@ -198,7 +208,7 @@ export default function BattleScreen({
     if (totals.mana > 0) {
       if (isPlayer) {
         const timeGain = totals.mana * TIME_PER_ENERGY_TILE;
-        setTimeBank((t) => t + timeGain);
+        setTimeBank((t) => Math.min(MAX_TIME, t + timeGain));
         pushLog(`Nạp năng lượng: +${timeGain}s thời gian!`, "player");
       } else {
         mpGain += totals.mana * 10;
@@ -222,15 +232,14 @@ export default function BattleScreen({
       const finalDmg = Math.max(1, dmg - (isPlayer ? 0 : def));
       if (isPlayer) {
         playCatPose("shoot", skillFired ? 650 : 400);
+        // Cat shoots a real bullet across the field
+        setTimeout(() => spawnBullet("right", skillFired), 120);
       } else {
+        // Zombies fight melee — their own Attack animation carries the motion, so no bullet;
+        // just a small impact burst timed to when the swipe lands.
         playEnemyPose("attack", skillFired ? 650 : 400);
+        setTimeout(() => spawnImpact(), 260);
       }
-      setTimeout(
-        () => {
-          spawnBullet(isPlayer ? "right" : "left", skillFired);
-        },
-        isPlayer ? 120 : 180
-      );
       setTimeout(
         () => {
           if (isPlayer) {
@@ -346,6 +355,9 @@ export default function BattleScreen({
         >
           x{speed}
         </button>
+        <button onClick={() => setPaused(true)} className="shrink-0 overflow-hidden rounded-full">
+          <Image src="/ui/settings_btn.png" alt="Tạm dừng" width={26} height={26} />
+        </button>
       </div>
 
       <div className="flex items-start justify-between gap-2">
@@ -363,12 +375,12 @@ export default function BattleScreen({
             <span className="shrink-0 text-[10px] text-amber-300">⏱</span>
             <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
               <div
-                className={`h-full transition-all duration-150 ${timeBank <= 5 ? "bg-red-500" : "bg-amber-400"}`}
-                style={{ width: `${Math.min(100, (timeBank / DISPLAY_MAX_TIME) * 100)}%` }}
+                className={`h-full transition-all duration-150 ${timeBank <= 20 ? "bg-red-500" : "bg-amber-400"}`}
+                style={{ width: `${Math.min(100, (timeBank / MAX_TIME) * 100)}%` }}
               />
             </div>
-            <span className={`shrink-0 text-[10px] font-semibold ${timeBank <= 5 ? "text-red-400" : "text-amber-200"}`}>
-              {timeBank.toFixed(1)}s
+            <span className={`shrink-0 text-[10px] font-semibold tabular-nums ${timeBank <= 20 ? "text-red-400" : "text-amber-200"}`}>
+              {formatTime(timeBank)}
             </span>
           </div>
         </div>
@@ -435,6 +447,9 @@ export default function BattleScreen({
         {bullets.map((b) => (
           <Bullet key={b.id} direction={b.direction} crit={b.crit} />
         ))}
+        {impacts.map((id) => (
+          <ImpactHit key={id} />
+        ))}
       </div>
 
       <div className="max-h-20 space-y-0.5 overflow-y-auto rounded-lg bg-slate-950/60 p-2 text-[11px]">
@@ -448,7 +463,7 @@ export default function BattleScreen({
       <Match3Grid
         board={board}
         onSwap={handleSwap}
-        disabled={busy || phase !== "fighting" || turn !== "player"}
+        disabled={busy || phase !== "fighting" || turn !== "player" || paused}
         bursts={bursts}
         fallingCells={fallingCells}
         updateTick={updateTick}
@@ -466,11 +481,52 @@ export default function BattleScreen({
 
       {phase !== "fighting" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-          <div className="w-full max-w-xs rounded-xl border border-amber-500 bg-slate-900 p-5 text-center shadow-2xl">
-            <p className="mb-2 text-xl font-bold text-amber-300">{phase === "victory" ? "🎉 Chiến thắng!" : "💀 Thất bại"}</p>
-            {phase === "victory" && <p className="mb-3 text-sm text-amber-100">Điểm: {score}</p>}
-            <button onClick={() => onResult(phase === "victory")} className="rounded-lg bg-amber-500 px-5 py-2 font-semibold text-slate-900">
-              Tiếp tục
+          <div className="flex w-full max-w-xs flex-col items-center gap-4">
+            <Image
+              src={phase === "victory" ? "/ui/win_popup.png" : "/ui/lose_popup.png"}
+              alt={phase === "victory" ? "You Win" : "You Lose"}
+              width={phase === "victory" ? 1375 : 1073}
+              height={phase === "victory" ? 602 : 472}
+              className="w-full drop-shadow-2xl"
+            />
+            {phase === "victory" && <p className="-mt-2 text-sm font-semibold text-amber-200">Điểm: {score}</p>}
+            <button
+              onClick={() => onResult(phase === "victory")}
+              className="relative flex h-14 w-48 items-center justify-center"
+              style={{
+                backgroundImage: "url(/ui/btn_orange.png)",
+                backgroundSize: "100% 100%",
+                backgroundRepeat: "no-repeat",
+              }}
+            >
+              <span className="text-base font-bold text-white drop-shadow">Tiếp tục</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {paused && phase === "fighting" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="flex w-full max-w-xs flex-col items-center gap-5">
+            <div
+              className="flex h-24 w-full items-center justify-center"
+              style={{ backgroundImage: "url(/ui/bg_paused.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}
+            >
+              <span className="text-2xl font-bold text-amber-100">Tạm dừng</span>
+            </div>
+            <button
+              onClick={() => setPaused(false)}
+              className="relative flex h-14 w-48 items-center justify-center"
+              style={{ backgroundImage: "url(/ui/btn_green.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}
+            >
+              <span className="text-base font-bold text-white drop-shadow">Tiếp tục</span>
+            </button>
+            <button
+              onClick={onExit}
+              className="relative flex h-14 w-48 items-center justify-center"
+              style={{ backgroundImage: "url(/ui/btn_orange.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}
+            >
+              <span className="text-base font-bold text-white drop-shadow">Thoát trận</span>
             </button>
           </div>
         </div>
@@ -486,6 +542,13 @@ function Bar({ color, value, max, align }: { color: string; value: number; max: 
       <div className={`h-full ${color} transition-all duration-300`} style={{ width: `${pct}%` }} />
     </div>
   );
+}
+
+function formatTime(seconds: number): string {
+  const s = Math.max(0, seconds);
+  const m = Math.floor(s / 60);
+  const rem = Math.floor(s % 60);
+  return `${m}:${rem.toString().padStart(2, "0")}`;
 }
 
 function sleep(ms: number) {

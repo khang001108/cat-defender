@@ -1,160 +1,60 @@
 import { CatDefinition, EnemyDefinition } from "./types";
 
+function catSprite(key: string) {
+  return {
+    idle: { src: `/sprites/${key}_idle.png`, frames: 10 },
+    shoot: { src: `/sprites/${key}_shoot.png`, frames: 10 },
+    dead: { src: `/sprites/${key}_idle.png`, frames: 10 },
+  };
+}
+
 export const CATS: CatDefinition[] = [
-  {
-    id: "cat1",
-    name: "Mèo Cam",
-    role: "Cân bằng, dễ chơi",
-    hp: 120,
-    mp: 100,
-    atk: 14,
-    def: 6,
-    sprite: {
-      idle: { src: "/sprites/cat1_idle.png", frames: 10 },
-      shoot: { src: "/sprites/cat1_shoot.png", frames: 10 },
-      dead: { src: "/sprites/cat1_idle.png", frames: 10 },
-    },
-  },
-  {
-    id: "cat9",
-    name: "Mèo Xám Mũ Phớt",
-    role: "Sát thương cao, máu thấp",
-    hp: 95,
-    mp: 110,
-    atk: 18,
-    def: 4,
-    sprite: {
-      idle: { src: "/sprites/cat9_idle.png", frames: 10 },
-      shoot: { src: "/sprites/cat9_shoot.png", frames: 10 },
-      dead: { src: "/sprites/cat9_idle.png", frames: 10 },
-    },
-  },
-  {
-    id: "cat11",
-    name: "Mèo Trắng",
-    role: "Tốc độ nhanh, hồi chiêu tốt",
-    hp: 105,
-    mp: 130,
-    atk: 15,
-    def: 5,
-    sprite: {
-      idle: { src: "/sprites/cat11_idle.png", frames: 10 },
-      shoot: { src: "/sprites/cat11_shoot.png", frames: 10 },
-      dead: { src: "/sprites/cat11_idle.png", frames: 10 },
-    },
-  },
-  {
-    id: "cat14",
-    name: "Mèo Vàng Mũ Sắt",
-    role: "Máu cao, phòng thủ tốt",
-    hp: 135,
-    mp: 90,
-    atk: 12,
-    def: 8,
-    sprite: {
-      idle: { src: "/sprites/cat14_idle.png", frames: 10 },
-      shoot: { src: "/sprites/cat14_shoot.png", frames: 10 },
-      dead: { src: "/sprites/cat14_idle.png", frames: 10 },
-    },
-  },
+  { id: "cat1", name: "Mèo Cam", role: "Cân bằng, dễ chơi", hp: 120, mp: 100, atk: 14, def: 6, sprite: catSprite("cat1") },
+  { id: "cat2", name: "Mèo Kính Bơi", role: "Sát thương ổn định", hp: 115, mp: 105, atk: 15, def: 5, sprite: catSprite("cat2") },
+  { id: "cat3", name: "Mèo Khăn Rằn", role: "Máu cao", hp: 130, mp: 95, atk: 12, def: 7, sprite: catSprite("cat3") },
+  { id: "cat4", name: "Mèo Mũ Vàng", role: "Tấn công nhanh", hp: 100, mp: 115, atk: 17, def: 4, sprite: catSprite("cat4") },
+  { id: "cat5", name: "Mèo Đốm", role: "Cân bằng", hp: 118, mp: 100, atk: 14, def: 6, sprite: catSprite("cat5") },
+  { id: "cat6", name: "Mèo Xanh Dương", role: "Phòng thủ tốt", hp: 128, mp: 92, atk: 12, def: 8, sprite: catSprite("cat6") },
+  { id: "cat7", name: "Mèo Cầu Vồng", role: "Đa dụng", hp: 112, mp: 108, atk: 15, def: 5, sprite: catSprite("cat7") },
+  { id: "cat8", name: "Mèo Đen", role: "Sát thương cao, máu thấp", hp: 92, mp: 112, atk: 19, def: 3, sprite: catSprite("cat8") },
+  { id: "cat9", name: "Mèo Xám Mũ Phớt", role: "Sát thương cao, máu thấp", hp: 95, mp: 110, atk: 18, def: 4, sprite: catSprite("cat9") },
+  { id: "cat10", name: "Mèo Đội Trưởng", role: "Chỉ huy, cân bằng", hp: 122, mp: 102, atk: 14, def: 6, sprite: catSprite("cat10") },
+  { id: "cat11", name: "Mèo Trắng", role: "Tốc độ nhanh, hồi chiêu tốt", hp: 105, mp: 130, atk: 15, def: 5, sprite: catSprite("cat11") },
+  { id: "cat12", name: "Mèo Ngụy Trang", role: "Linh hoạt", hp: 110, mp: 108, atk: 16, def: 5, sprite: catSprite("cat12") },
+  { id: "cat13", name: "Mèo Đặc Nhiệm", role: "Tấn công mạnh", hp: 108, mp: 106, atk: 17, def: 5, sprite: catSprite("cat13") },
+  { id: "cat14", name: "Mèo Vàng Mũ Sắt", role: "Máu cao, phòng thủ tốt", hp: 135, mp: 90, atk: 12, def: 8, sprite: catSprite("cat14") },
+  { id: "cat15", name: "Mèo Chỉ Huy Trưởng", role: "Boss cuối, mạnh toàn diện", hp: 140, mp: 120, atk: 18, def: 7, sprite: catSprite("cat15") },
 ];
 
+function regSprite(key: string) {
+  return {
+    idle: { src: `/sprites/${key}_idle.png`, frames: 10 },
+    attack: { src: `/sprites/${key}_attack.png`, frames: 9 },
+    dead: { src: `/sprites/${key}_dead.png`, frames: 10 },
+  };
+}
+function bossSprite(key: string) {
+  return {
+    idle: { src: `/sprites/${key}_idle.png`, frames: 10 },
+    attack: { src: `/sprites/${key}_attack.png`, frames: 10 },
+    dead: { src: `/sprites/${key}_dead.png`, frames: 10 },
+  };
+}
+
 export const ENEMIES: EnemyDefinition[] = [
-  {
-    id: "enemy1",
-    name: "Zombie Cún Thường",
-    level: 1,
-    hp: 130,
-    atk: 10,
-    sprite: {
-      idle: { src: "/sprites/enemy1_idle.png", frames: 10 },
-      walk: { src: "/sprites/enemy1_walk.png", frames: 9 },
-      attack: { src: "/sprites/enemy1_attack.png", frames: 9 },
-      dead: { src: "/sprites/enemy1_dead.png", frames: 10 },
-    },
-  },
-  {
-    id: "enemy2",
-    name: "Zombie Trái Tim",
-    level: 2,
-    hp: 150,
-    atk: 11,
-    sprite: {
-      idle: { src: "/sprites/enemy2_idle.png", frames: 10 },
-      attack: { src: "/sprites/enemy2_attack.png", frames: 9 },
-      dead: { src: "/sprites/enemy2_dead.png", frames: 10 },
-    },
-  },
-  {
-    id: "enemy4",
-    name: "Zombie Mũ Lưỡi Trai",
-    level: 3,
-    hp: 175,
-    atk: 13,
-    sprite: {
-      idle: { src: "/sprites/enemy4_idle.png", frames: 10 },
-      attack: { src: "/sprites/enemy4_attack.png", frames: 9 },
-      dead: { src: "/sprites/enemy4_dead.png", frames: 10 },
-    },
-  },
-  {
-    id: "enemy6",
-    name: "Zombie Nón Bảo Hộ",
-    level: 4,
-    hp: 195,
-    atk: 14,
-    sprite: {
-      idle: { src: "/sprites/enemy6_idle.png", frames: 10 },
-      attack: { src: "/sprites/enemy6_attack.png", frames: 9 },
-      dead: { src: "/sprites/enemy6_dead.png", frames: 10 },
-    },
-  },
-  {
-    id: "enemy8",
-    name: "Zombie Loa Đài",
-    level: 5,
-    hp: 215,
-    atk: 15,
-    sprite: {
-      idle: { src: "/sprites/enemy8_idle.png", frames: 10 },
-      attack: { src: "/sprites/enemy8_attack.png", frames: 9 },
-      dead: { src: "/sprites/enemy8_dead.png", frames: 10 },
-    },
-  },
-  {
-    id: "boss1",
-    name: "Trùm Zombie Thùng Sắt",
-    level: 6,
-    hp: 320,
-    atk: 18,
-    sprite: {
-      idle: { src: "/sprites/boss1_idle.png", frames: 10 },
-      attack: { src: "/sprites/boss1_attack.png", frames: 10 },
-      dead: { src: "/sprites/boss1_dead.png", frames: 10 },
-    },
-  },
-  {
-    id: "boss2",
-    name: "Trùm Zombie Gai Nhọn",
-    level: 7,
-    hp: 360,
-    atk: 20,
-    sprite: {
-      idle: { src: "/sprites/boss2_idle.png", frames: 10 },
-      attack: { src: "/sprites/boss2_attack.png", frames: 10 },
-      dead: { src: "/sprites/boss2_dead.png", frames: 10 },
-    },
-  },
-  {
-    id: "boss4",
-    name: "Trùm Zombie Gậy Bóng Chày",
-    level: 8,
-    hp: 400,
-    atk: 22,
-    sprite: {
-      idle: { src: "/sprites/boss4_idle.png", frames: 10 },
-      attack: { src: "/sprites/boss4_attack.png", frames: 10 },
-      dead: { src: "/sprites/boss4_dead.png", frames: 10 },
-    },
-  },
+  { id: "enemy1", name: "Zombie Cún Thường", level: 1, hp: 130, atk: 10, sprite: regSprite("enemy1") },
+  { id: "enemy2", name: "Zombie Trái Tim", level: 2, hp: 150, atk: 11, sprite: regSprite("enemy2") },
+  { id: "enemy3", name: "Zombie Nón Đỏ", level: 3, hp: 165, atk: 12, sprite: regSprite("enemy3") },
+  { id: "enemy4", name: "Zombie Mũ Lưỡi Trai", level: 3, hp: 175, atk: 13, sprite: regSprite("enemy4") },
+  { id: "enemy5", name: "Zombie Nón Công Trường", level: 4, hp: 185, atk: 13, sprite: regSprite("enemy5") },
+  { id: "enemy6", name: "Zombie Nón Bảo Hộ", level: 4, hp: 195, atk: 14, sprite: regSprite("enemy6") },
+  { id: "enemy7", name: "Zombie Băng Bó", level: 5, hp: 205, atk: 14, sprite: regSprite("enemy7") },
+  { id: "enemy8", name: "Zombie Loa Đài", level: 5, hp: 215, atk: 15, sprite: regSprite("enemy8") },
+  { id: "boss1", name: "Trùm Zombie Thùng Sắt", level: 6, hp: 320, atk: 18, sprite: bossSprite("boss1") },
+  { id: "boss2", name: "Trùm Zombie Gai Nhọn", level: 7, hp: 350, atk: 19, sprite: bossSprite("boss2") },
+  { id: "boss3", name: "Trùm Zombie Đấu Sĩ", level: 7, hp: 365, atk: 20, sprite: bossSprite("boss3") },
+  { id: "boss4", name: "Trùm Zombie Gậy Bóng Chày", level: 8, hp: 385, atk: 21, sprite: bossSprite("boss4") },
+  { id: "boss5", name: "Trùm Zombie Cơ Bắp", level: 8, hp: 400, atk: 22, sprite: bossSprite("boss5") },
+  { id: "boss6", name: "Trùm Zombie Trống Trận", level: 9, hp: 420, atk: 23, sprite: bossSprite("boss6") },
+  { id: "boss7", name: "Trùm Zombie Tối Thượng", level: 10, hp: 450, atk: 25, sprite: bossSprite("boss7") },
 ];
