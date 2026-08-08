@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+/* ---- Sprite-sheet flipbook animation (frame strip walked via background-position) ---- */
+@keyframes sprite-play {
+  from { background-position: 0% 0; }
+  to { background-position: 100% 0; }
+}
+
+/* ---- Extra juice layered on top of the sprite itself ---- */
+@keyframes hit-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px) rotate(-2deg); }
+  40% { transform: translateX(5px) rotate(2deg); }
+  60% { transform: translateX(-4px) rotate(-1deg); }
+  80% { transform: translateX(3px) rotate(1deg); }
+}
+@keyframes lunge-right {
+  0% { transform: translateX(0) scale(1); }
+  40% { transform: translateX(14px) scale(1.06); }
+  100% { transform: translateX(0) scale(1); }
+}
+@keyframes lunge-left {
+  0% { transform: translateX(0) scale(1); }
+  40% { transform: translateX(-14px) scale(1.06); }
+  100% { transform: translateX(0) scale(1); }
+}
+@keyframes fall-dead {
+  0% { transform: rotate(0deg) translateY(0); opacity: 1; }
+  100% { transform: rotate(-18deg) translateY(6px); opacity: 0.55; }
+}
+.anim-hurt { animation: hit-shake 0.4s ease-in-out; }
+.anim-attack-right { animation: lunge-right 0.4s ease-out; }
+.anim-attack-left { animation: lunge-left 0.4s ease-out; }
+.anim-dead { animation: fall-dead 0.6s ease-out forwards; }
+
+/* ---- Gem tile effects: selection glow, impact burst, floating damage/heal numbers ---- */
+@keyframes tile-select-pulse {
+  0%, 100% { filter: drop-shadow(0 0 4px var(--tile-glow)); }
+  50% { filter: drop-shadow(0 0 11px var(--tile-glow)); }
+}
+.tile-selected { animation: tile-select-pulse 0.7s ease-in-out infinite; }
+
+@keyframes burst-flash-anim {
+  0% { transform: scale(0.2) rotate(0deg); opacity: 0; }
+  25% { transform: scale(1.15) rotate(10deg); opacity: 1; }
+  100% { transform: scale(0.9) rotate(20deg); opacity: 0; }
+}
+@keyframes burst-ring-anim {
+  0% { transform: scale(0.3); opacity: 0.9; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+.fx-burst-flash { animation: burst-flash-anim 0.5s ease-out forwards; }
+.fx-burst-ring { animation: burst-ring-anim 0.5s ease-out forwards; }
+
+@keyframes number-float-anim {
+  0% { transform: translateY(0) scale(0.7); opacity: 0; }
+  15% { transform: translateY(-4px) scale(1.15); opacity: 1; }
+  75% { transform: translateY(-26px) scale(1); opacity: 1; }
+  100% { transform: translateY(-38px) scale(0.95); opacity: 0; }
+}
+.fx-number { animation: number-float-anim 1.1s ease-out forwards; }
