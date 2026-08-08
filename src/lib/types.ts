@@ -17,6 +17,8 @@ export interface CatDefinition {
   atk: number;
   def: number;
   sprite: SpriteSet;
+  /** vertical % down the sprite where the gun muzzle sits, so bullets fire from the right spot */
+  gunHeightPercent: number;
 }
 
 export interface EnemyDefinition {

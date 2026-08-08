@@ -45,12 +45,13 @@ export function ImpactHit() {
   );
 }
 
-export function Bullet({ direction, crit }: { direction: "right" | "left"; crit?: boolean }) {
+export function Bullet({ direction, crit, topPercent = 60 }: { direction: "right" | "left"; crit?: boolean; topPercent?: number }) {
   return (
     <div
-      className={`pointer-events-none absolute top-[60%] z-20 -translate-y-1/2 ${direction === "right" ? "fx-bullet-right" : "fx-bullet-left"}`}
+      className={`pointer-events-none absolute z-20 -translate-y-1/2 ${direction === "right" ? "fx-bullet-right" : "fx-bullet-left"}`}
       style={
         {
+          top: `${topPercent}%`,
           "--bullet-start": "20%",
           "--bullet-end": "88%",
           [direction === "right" ? "left" : "right"]: "20%",

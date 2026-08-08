@@ -20,7 +20,8 @@ Game ghép-3 (match-3) theo phong cách bắn súng, dùng asset "Cartoon Cat De
 - **Bàn cờ dùng chung, đánh theo lượt**, bot dùng đúng hiệu ứng trượt ô mượt khi ghép giống người chơi
 - **Đồng hồ thời gian 3 phút cho CẢ HAI BÊN** (không phải mỗi lượt) — chỉ chạy khi tới lượt của bên đó, đổi lượt không hồi lại, chỉ ghép viên Năng Lượng (⭐ sao vàng) mới cộng thêm giây (tối đa 3:00). Hết giờ giữa lượt là thua ngay
 - **Hệ thống Skill 3 cấp độ, mỗi mèo một bộ kỹ năng RIÊNG BIỆT hoàn toàn** (không dùng chung công thức): ghép viên "Skill" (xoáy tím) để tích cọc (tối đa 3), dùng cọc kích hoạt skill cấp 1/2/3 — cấp 1 rẻ nhất/yếu nhất, cấp 3 tốn nhất/mạnh nhất. Toàn bộ 15 mèo × 3 cấp = 45 hiệu ứng khác nhau, gồm: bắn nhiều phát, nổ vùng ngẫu nhiên trên bàn cờ (2x2 → 5x5), hút hết 1 loại ô trên bàn cờ, khiên miễn nhiễm sát thương, phản đòn, độc dược (mất % HP theo lượt), hút máu địch, hồi máu vượt ngưỡng (overheal), triệu hồi mèo đấm bốc hỗ trợ (mỗi lượt ghép xong tự đấm thêm, nhân sát thương theo số ô ghép được), buff nhân sát thương nhiều lượt, cộng thêm lượt đánh — xem chi tiết từng mèo trong `src/lib/skills.ts`
-- **1 nút Kỹ Năng duy nhất** ngay dưới khung chiến trường — bấm vào mới xổ ra 3 lựa chọn cấp độ, đỡ chiếm chỗ màn hình
+- **Icon Kỹ Năng (lấy từ asset) đặt gọn bên trái đầu trang, icon Chú Thích + Tạm Dừng bên phải** — bấm icon Kỹ Năng mới xổ ra 3 lựa chọn cấp độ; bấm icon Chú Thích xem gộp 4 loại viên đá (trước đây chiếm hẳn 1 hàng dưới bàn cờ); đã bỏ chữ "Hiệp"/"Thoát" khỏi đầu trang cho gọn (thoát trận vẫn vào được qua nút Tạm Dừng)
+- **Lượt đi hiển thị bằng viền phát sáng xanh dương (bạn) / đỏ (địch)** quanh khung trạng thái, không còn chữ "Lượt của bạn/đối thủ" chiếm chỗ trên bản đồ
 - **Icon trạng thái đang hoạt động** hiện thành 1 hàng riêng dưới 2 khung trạng thái: 🛡️ miễn sát thương, 🔁 phản đòn, 🔥 tăng sát thương nhiều lượt, ⚡ đòn tiếp theo tăng sát thương, 🥊 mèo đấm bốc hỗ trợ, ☠️ trúng độc (bên địch) — kèm số lượt/số lần còn lại
 - **Xem trước nhân vật**: chạm vào 1 mèo ở màn chọn đội hình sẽ mở bảng xem trước — coi hoạt ảnh Đứng yên/Bắn/Gục ngã và đọc mô tả cả 3 skill trước khi chọn
 - **Thêm lượt khi ghép lớn**: ghép 4 viên +1 lượt, ghép 5 viên +2 lượt (cả 2 bên)
@@ -29,6 +30,8 @@ Game ghép-3 (match-3) theo phong cách bắn súng, dùng asset "Cartoon Cat De
 - **Chỉ báo lượt đi hiện ngay trên bản đồ chiến trường** (không còn ở thanh trên cùng)
 - **Zombie hiển thị to hơn mèo** (đúng tỉ lệ "trùm quái" nên nhìn hợp lý hơn), bản đồ phủ kín toàn khung không còn viền hở
 - **Nền chiến trường lấy từ bản đồ đã chọn**, popup Thắng/Thua dùng banner "YOU WIN"/"YOU LOSE" thật
+- **Đạn bắn ra đúng nòng súng của từng mèo** (mỗi mèo cầm súng ở độ cao khác nhau, đã hiệu chỉnh riêng cho cả 15 con)
+- **Hoạt ảnh nổ theo 2 giai đoạn rõ ràng và chậm hơn**: nổ trước → rơi ô mới xuống xong → mới tính ghép nối tiếp, mắt kịp theo dõi từng bước
 - **Hiệu ứng nổ chi tiết hơn + giãn nhịp giữa các vụ nổ liên tiếp** (skill nổ vùng nhiều lần) để mắt kịp theo dõi
 - Zombie đánh cận chiến bằng animation gốc của nó (không bắn đạn giả), có hiệu ứng nổ nhỏ khi cận chiến trúng đòn; mèo vẫn bắn đạn thật bay sang
 - **Thông báo trạng thái dạng toast** nổi lên tạm thời (không còn khung log cuộn dài)

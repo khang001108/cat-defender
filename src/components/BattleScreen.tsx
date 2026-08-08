@@ -61,6 +61,7 @@ export default function BattleScreen({
   const [enemyMp, setEnemyMp] = useState(0);
   const [skillPips, setSkillPips] = useState(0);
   const [skillMenuOpen, setSkillMenuOpen] = useState(false);
+  const [infoMenuOpen, setInfoMenuOpen] = useState(false);
   const [fullBlockHits, setFullBlockHits] = useState(0);
   const [reflectStatus, setReflectStatus] = useState<{ turnsLeft: number; mult: number } | null>(null);
   const [poisonStatus, setPoisonStatus] = useState<{ percent: number; turnsLeft: number } | null>(null);
@@ -96,7 +97,7 @@ export default function BattleScreen({
     { id: number; value: number; kind: "damage" | "heal" | "crit"; target: "cat" | "enemy" }[]
   >([]);
   const floaterId = useRef(0);
-  const [bullets, setBullets] = useState<{ id: number; direction: "left" | "right"; crit: boolean }[]>([]);
+  const [bullets, setBullets] = useState<{ id: number; direction: "left" | "right"; crit: boolean; topPercent: number }[]>([]);
   const bulletId = useRef(0);
   const [impacts, setImpacts] = useState<number[]>([]);
   const impactId = useRef(0);
@@ -129,7 +130,7 @@ export default function BattleScreen({
   }
   function spawnBullet(direction: "left" | "right", crit: boolean) {
     const id = bulletId.current++;
-    setBullets((b) => [...b, { id, direction, crit }]);
+    setBullets((b) => [...b, { id, direction, crit, topPercent: cat.gunHeightPercent }]);
     setTimeout(() => setBullets((b) => b.filter((x) => x.id !== id)), 350);
   }
   function spawnImpact() {
@@ -245,18 +246,23 @@ export default function BattleScreen({
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
+      const matchesNow = findMatches(working);
+      if (matchesNow.length === 0) break;
       const { board: nextBoard, counts, clearedCells, maxMatchSize, newCells } = resolveMatches(working);
-      const changed = Object.values(counts).some((v) => v > 0);
-      if (!changed) break;
+
+      // Phase 1: the burst plays on the board as it currently stands, so the eye can see what matched
+      spawnBursts(clearedCells);
+      await sleep(420 / speed);
+
+      // Phase 2: tiles clear and new ones drop in — wait for that to visually finish before re-checking
       (Object.keys(counts) as TileType[]).forEach((k) => (totals[k] += counts[k]));
       if (counts.mana > 0) skillPipsGained += Math.floor(counts.mana / SKILL_TILES_PER_PIP) || (counts.mana >= 3 ? 1 : 0);
       maxSize = Math.max(maxSize, maxMatchSize);
-      spawnBursts(clearedCells);
       working = nextBoard;
       setBoard(working);
       setFallingCells(newCells);
       setUpdateTick((t) => t + 1);
-      await sleep(250 / speed);
+      await sleep(480 / speed);
     }
 
     setRound((r) => r + 1);
@@ -493,7 +499,7 @@ export default function BattleScreen({
             resolveAreaTotals(totals);
             return nb;
           });
-        }, i * 480);
+        }, i * 700);
       }
     }
 
@@ -581,16 +587,60 @@ export default function BattleScreen({
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-2 overflow-x-hidden p-3">
-      <div className="flex items-center justify-between gap-1">
-        <button onClick={onExit} className="shrink-0 text-xs text-amber-300 underline">
-          ← Thoát
+      <div className="relative flex items-center justify-between gap-1">
+        <button onClick={() => setSkillMenuOpen((v) => !v)} disabled={skillPips === 0} className="relative shrink-0 overflow-hidden rounded-full">
+          <Image src="/ui/skill_icon.png" alt="Kỹ năng" width={30} height={30} className={skillPips === 0 ? "opacity-40" : ""} />
+          {skillPips > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-purple-500 text-[8px] font-bold text-white">
+              {skillPips}
+            </span>
+          )}
         </button>
-        <span className="shrink-0 rounded-full border border-amber-600 bg-slate-900 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300">
-          Hiệp {round}
-        </span>
-        <button onClick={() => setPaused(true)} className="shrink-0 overflow-hidden rounded-full">
-          <Image src="/ui/icon_settings.png" alt="Tạm dừng" width={26} height={26} />
-        </button>
+        {skillMenuOpen && (
+          <div className="absolute left-0 top-full z-30 mt-1 grid grid-cols-3 gap-1.5 rounded-xl border border-purple-600 bg-slate-950 p-2 shadow-2xl">
+            {skillTiers.map((tier) => {
+              const usable = skillPips >= tier.cost && turn === "player" && phase === "fighting" && !busy && !paused;
+              return (
+                <button
+                  key={tier.tier}
+                  onClick={() => {
+                    useSkill(tier);
+                    setSkillMenuOpen(false);
+                  }}
+                  disabled={!usable}
+                  className={`w-24 rounded-lg border p-1.5 text-center transition ${
+                    usable ? "border-purple-500 bg-purple-900/40 hover:bg-purple-800/50" : "border-slate-700 bg-slate-900/40 opacity-50"
+                  }`}
+                >
+                  <p className="truncate text-[10px] font-bold text-purple-200">{tier.name}</p>
+                  <p className="truncate text-[8px] text-slate-400">{tier.desc}</p>
+                  <p className="mt-0.5 text-[9px] text-purple-300">{tier.cost} pip</p>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button onClick={() => setInfoMenuOpen((v) => !v)} className="overflow-hidden rounded-full">
+            <Image src="/ui/info_icon.png" alt="Chú thích" width={26} height={26} />
+          </button>
+          <button onClick={() => setPaused(true)} className="overflow-hidden rounded-full">
+            <Image src="/ui/icon_settings.png" alt="Tạm dừng" width={26} height={26} />
+          </button>
+        </div>
+
+        {infoMenuOpen && (
+          <div className="absolute right-0 top-full z-30 mt-1 grid grid-cols-2 gap-1.5 rounded-xl border border-amber-600 bg-slate-950 p-2 shadow-2xl">
+            {SKILL_LEGEND.map((s) => (
+              <div key={s.type} className="w-28 rounded-lg border border-amber-700/30 bg-slate-900/60 p-1.5 text-center">
+                <TileIcon type={s.type} className="mx-auto h-6 w-6" />
+                <p className="truncate text-[9px] font-semibold text-amber-200">{s.name}</p>
+                <p className="truncate text-[8px] text-slate-400">{s.desc}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Team rosters */}
@@ -614,7 +664,11 @@ export default function BattleScreen({
       )}
 
       <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-xl border border-amber-700/50 bg-slate-900/80 p-2">
+        <div
+          className={`flex min-w-0 flex-1 flex-col gap-1 rounded-xl border-2 bg-slate-900/80 p-2 transition-colors ${
+            turn === "player" ? "border-sky-400 shadow-[0_0_10px_1px_rgba(56,189,248,0.4)]" : "border-amber-700/50"
+          }`}
+        >
           <div className="flex items-center gap-2">
             <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-amber-400 bg-slate-800">
               <AnimatedSprite src={cat.sprite.idle.src} frames={cat.sprite.idle.frames} fps={10} className="h-full w-full scale-150" />
@@ -641,7 +695,11 @@ export default function BattleScreen({
             ))}
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-xl border border-red-700/50 bg-slate-900/80 p-2">
+        <div
+          className={`flex min-w-0 flex-1 flex-col gap-1 rounded-xl border-2 bg-slate-900/80 p-2 transition-colors ${
+            turn === "enemy" ? "border-red-400 shadow-[0_0_10px_1px_rgba(248,113,113,0.4)]" : "border-red-700/50"
+          }`}
+        >
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1 text-right">
               <p className="truncate text-[11px] font-semibold text-red-200">{enemy.name}</p>
@@ -674,8 +732,10 @@ export default function BattleScreen({
         buffDamageMult ||
         buffNextAttackMult ||
         boxingCatTurns > 0 ||
+        pendingCredits > 1 ||
         (poisonStatus && poisonStatus.turnsLeft > 0)) && (
         <div className="flex flex-wrap items-center gap-1.5 px-1">
+          {pendingCredits > 1 && <StatusBadge icon="🔄" label={`+${pendingCredits - 1} lượt`} title="Lượt cộng dồn còn lại" />}
           {fullBlockHits > 0 && <StatusBadge icon="🛡️" label={`x${fullBlockHits}`} title="Miễn sát thương" />}
           {reflectStatus && reflectStatus.turnsLeft > 0 && <StatusBadge icon="🔁" label={`${reflectStatus.turnsLeft}`} title="Phản đòn" />}
           {buffDamageMult && <StatusBadge icon="🔥" label={`x${buffDamageMult.mult}·${buffDamageMult.turnsLeft}`} title="Tăng sát thương" />}
@@ -690,13 +750,6 @@ export default function BattleScreen({
         style={{ backgroundImage: `url(${map.field})` }}
       >
         <div className="absolute inset-0 bg-slate-950/20" />
-        <span
-          className={`absolute left-1/2 top-2 z-20 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] font-bold shadow-lg ${
-            turn === "player" ? "bg-sky-600 text-white" : "bg-red-600 text-white"
-          }`}
-        >
-          {turn === "player" ? "Lượt của bạn" : "Lượt đối thủ"}
-        </span>
         {toast && <Toast key={toast.id} text={toast.text} kind={toast.kind} />}
         <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible">
           <div className="h-full w-full overflow-hidden">
@@ -730,53 +783,11 @@ export default function BattleScreen({
           ))}
         </div>
         {bullets.map((b) => (
-          <Bullet key={b.id} direction={b.direction} crit={b.crit} />
+          <Bullet key={b.id} direction={b.direction} crit={b.crit} topPercent={b.topPercent} />
         ))}
         {impacts.map((id) => (
           <ImpactHit key={id} />
         ))}
-      </div>
-
-      {/* Single skill button right under the battlefield map — tap to reveal the 3 tiers */}
-      <div className="relative">
-        <button
-          onClick={() => setSkillMenuOpen((v) => !v)}
-          disabled={skillPips === 0}
-          className={`flex w-full items-center justify-center gap-2 rounded-xl border py-2.5 font-bold transition ${
-            skillPips > 0 ? "border-purple-500 bg-purple-900/50 text-purple-100 hover:bg-purple-800/60" : "border-slate-700 bg-slate-900/40 text-slate-500"
-          }`}
-        >
-          <span>⚡ Kỹ Năng</span>
-          <span className="flex gap-1">
-            {[1, 2, 3].map((p) => (
-              <span key={p} className={`h-2 w-2 rounded-full ${skillPips >= p ? "bg-purple-300" : "bg-slate-700"}`} />
-            ))}
-          </span>
-        </button>
-        {skillMenuOpen && (
-          <div className="absolute inset-x-0 top-full z-30 mt-1 grid grid-cols-3 gap-1.5 rounded-xl border border-purple-600 bg-slate-950 p-2 shadow-2xl">
-            {skillTiers.map((tier) => {
-              const usable = skillPips >= tier.cost && turn === "player" && phase === "fighting" && !busy && !paused;
-              return (
-                <button
-                  key={tier.tier}
-                  onClick={() => {
-                    useSkill(tier);
-                    setSkillMenuOpen(false);
-                  }}
-                  disabled={!usable}
-                  className={`rounded-lg border p-1.5 text-center transition ${
-                    usable ? "border-purple-500 bg-purple-900/40 hover:bg-purple-800/50" : "border-slate-700 bg-slate-900/40 opacity-50"
-                  }`}
-                >
-                  <p className="truncate text-[10px] font-bold text-purple-200">{tier.name}</p>
-                  <p className="truncate text-[8px] text-slate-400">{tier.desc}</p>
-                  <p className="mt-0.5 text-[9px] text-purple-300">{tier.cost} pip</p>
-                </button>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       <Match3Grid
@@ -789,16 +800,6 @@ export default function BattleScreen({
         externalSwap={externalSwap}
         hint={hint}
       />
-
-      <div className="grid grid-cols-4 gap-1.5">
-        {SKILL_LEGEND.map((s) => (
-          <div key={s.type} className="min-w-0 rounded-lg border border-amber-700/30 bg-slate-900/60 p-1.5 text-center">
-            <TileIcon type={s.type} className="mx-auto h-6 w-6" />
-            <p className="truncate text-[9px] font-semibold text-amber-200">{s.name}</p>
-            <p className="truncate text-[8px] text-slate-400">{s.desc}</p>
-          </div>
-        ))}
-      </div>
 
       {phase !== "fighting" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
