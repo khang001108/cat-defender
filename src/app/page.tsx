@@ -63,7 +63,7 @@ export default function Home() {
               className="flex items-center gap-3 overflow-hidden rounded-xl border border-red-700 bg-slate-900 p-3 hover:bg-slate-800"
             >
               <div className="h-16 w-16 shrink-0 overflow-hidden">
-                <AnimatedSprite src={e.sprite.idle.src} frames={e.sprite.idle.frames} fps={8} facing="left" className="h-full w-full bg-contain bg-center bg-no-repeat" />
+                <AnimatedSprite src={e.sprite.idle.src} frames={e.sprite.idle.frames} fps={8} className="h-full w-full bg-contain bg-center bg-no-repeat" />
               </div>
               <div className="text-left">
                 <p className="font-semibold text-red-200">{e.name}</p>

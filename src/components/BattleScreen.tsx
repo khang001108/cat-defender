@@ -1,21 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Board, createBoard, cloneBoard, swapCells, findMatches, resolveMatches, BOARD_SIZE } from "@/lib/board";
+import { Board, createBoard, cloneBoard, swapCells, findMatches, resolveMatches, findBestMove } from "@/lib/board";
 import { BattleLogEntry, CatDefinition, EnemyDefinition, TileType } from "@/lib/types";
 import Match3Grid, { Burst } from "./Match3Grid";
-import { FloatingNumber } from "./Effects";
+import { FloatingNumber, Bullet } from "./Effects";
 import { TileIcon } from "./TileIcon";
 import AnimatedSprite from "./AnimatedSprite";
 
 type Phase = "fighting" | "victory" | "defeat";
+type Side = "player" | "enemy";
 type CatPose = "idle" | "shoot" | "dead";
 type EnemyPose = "idle" | "attack" | "dead";
+
+const TURN_SECONDS = 12;
+const ENEMY_MAX_MP = 100;
 
 const SKILL_LEGEND: { type: TileType; name: string; desc: string }[] = [
   { type: "attack", name: "Bắn", desc: "Gây sát thương" },
   { type: "heal", name: "Hồi Máu", desc: "Hồi máu bản thân" },
-  { type: "mana", name: "Đạn Đặc Biệt", desc: "Tích năng lượng" },
+  { type: "mana", name: "Năng Lượng", desc: "Tích năng lượng" },
   { type: "defense", name: "Khiên", desc: "Giảm sát thương" },
 ];
 
@@ -33,15 +37,19 @@ export default function BattleScreen({
   const [board, setBoard] = useState<Board>(() => createBoard());
   const [hp, setHp] = useState(cat.hp);
   const [mp, setMp] = useState(0);
-  const maxMp = cat.mp;
-  const [enemyHp, setEnemyHp] = useState(enemy.hp);
   const [shield, setShield] = useState(0);
+  const [enemyHp, setEnemyHp] = useState(enemy.hp);
+  const [enemyMp, setEnemyMp] = useState(0);
+  const [enemyShield, setEnemyShield] = useState(0);
   const [score, setScore] = useState(0);
+
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("fighting");
   const [round, setRound] = useState(1);
-  const [autoBattle, setAutoBattle] = useState(false);
+  const [turn, setTurn] = useState<Side>("player");
+  const [pendingCredits, setPendingCredits] = useState(1);
   const [speed, setSpeed] = useState<1 | 2>(1);
+
   const [log, setLog] = useState<BattleLogEntry[]>([{ id: 0, text: `${enemy.name} xuất hiện!`, kind: "system" }]);
   const logId = useRef(1);
 
@@ -61,7 +69,16 @@ export default function BattleScreen({
     { id: number; value: number; kind: "damage" | "heal" | "crit"; target: "cat" | "enemy" }[]
   >([]);
   const floaterId = useRef(0);
-  const pendingScore = useRef(0);
+  const [bullets, setBullets] = useState<{ id: number; direction: "left" | "right"; crit: boolean }[]>([]);
+  const bulletId = useRef(0);
+
+  const [fallingCells, setFallingCells] = useState<{ r: number; c: number }[]>([]);
+  const [updateTick, setUpdateTick] = useState(0);
+
+  // Turn timer — only the player is under time pressure
+  const [timerRunId, setTimerRunId] = useState(0);
+  const [timerActive, setTimerActive] = useState(false);
+  const timerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function spawnBursts(cells: { r: number; c: number; type: TileType }[]) {
     const fresh = cells.map((c) => ({ id: burstId.current++, r: c.r, c: c.c, type: c.type }));
@@ -75,6 +92,12 @@ export default function BattleScreen({
     setTimeout(() => setFloaters((f) => f.filter((x) => x.id !== id)), 1100);
   }
 
+  function spawnBullet(direction: "left" | "right", crit: boolean) {
+    const id = bulletId.current++;
+    setBullets((b) => [...b, { id, direction, crit }]);
+    setTimeout(() => setBullets((b) => b.filter((x) => x.id !== id)), 350);
+  }
+
   function pushLog(text: string, kind: BattleLogEntry["kind"]) {
     setLog((l) => [...l.slice(-30), { id: logId.current++, text, kind }]);
   }
@@ -84,58 +107,106 @@ export default function BattleScreen({
     setCatPlayKey((k) => k + 1);
     if (p !== "dead") setTimeout(() => setCatPose((cur) => (cur === p ? "idle" : cur)), duration / speed);
   }
-
   function playEnemyPose(p: EnemyPose, duration = 500) {
     setEnemyPose(p);
     setEnemyPlayKey((k) => k + 1);
     if (p !== "dead") setTimeout(() => setEnemyPose((cur) => (cur === p ? "idle" : cur)), duration / speed);
   }
 
+  // ---- Turn timer (player only) ----
+  function startPlayerTimer() {
+    setTimerActive(true);
+    setTimerRunId((k) => k + 1);
+    if (timerTimeout.current) clearTimeout(timerTimeout.current);
+    timerTimeout.current = setTimeout(() => {
+      if (phase === "fighting") {
+        pushLog("Hết giờ! Bạn bỏ lỡ lượt và thua trận.", "system");
+        finishBattle(false);
+      }
+    }, (TURN_SECONDS * 1000) / speed);
+  }
+  function stopPlayerTimer() {
+    setTimerActive(false);
+    if (timerTimeout.current) clearTimeout(timerTimeout.current);
+  }
+
+  useEffect(() => {
+    if (turn === "player" && phase === "fighting" && !busy) startPlayerTimer();
+    else stopPlayerTimer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turn, busy, phase]);
+
+  // ---- AI turn trigger ----
+  useEffect(() => {
+    if (turn !== "enemy" || phase !== "fighting" || busy) return;
+    const t = setTimeout(() => {
+      const move = findBestMove(board, { attack: 3, mana: 1 });
+      if (!move) return;
+      const test = cloneBoard(board);
+      swapCells(test, move[0], move[1], move[2], move[3]);
+      processCascade(test, "enemy");
+    }, 700 / speed);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turn, phase, busy, board]);
+
   async function handleSwap(r1: number, c1: number, r2: number, c2: number) {
-    if (busy || phase !== "fighting") return;
+    if (busy || phase !== "fighting" || turn !== "player") return;
     const test = cloneBoard(board);
     swapCells(test, r1, c1, r2, c2);
     if (findMatches(test).length === 0) return;
+    stopPlayerTimer();
+    await processCascade(test, "player");
+  }
 
+  async function processCascade(startBoard: Board, actingSide: Side) {
     setBusy(true);
-    let working = test;
+    let working = startBoard;
     const totals: Record<TileType, number> = { attack: 0, defense: 0, mana: 0, heal: 0, gold: 0 };
+    let maxSize = 0;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
-      const { board: nextBoard, counts, clearedCells } = resolveMatches(working);
+      const { board: nextBoard, counts, clearedCells, maxMatchSize, newCells } = resolveMatches(working);
       const changed = Object.values(counts).some((v) => v > 0);
       if (!changed) break;
       (Object.keys(counts) as TileType[]).forEach((k) => (totals[k] += counts[k]));
+      maxSize = Math.max(maxSize, maxMatchSize);
       spawnBursts(clearedCells);
       working = nextBoard;
       setBoard(working);
-      await sleep(160 / speed);
+      setFallingCells(newCells);
+      setUpdateTick((t) => t + 1);
+      await sleep(190 / speed);
     }
 
-    applyPlayerTurn(totals);
-    setBoard(working);
     setRound((r) => r + 1);
-
-    await sleep(400 / speed);
+    applyTurnEffects(totals, actingSide, maxSize);
+    await sleep(350 / speed);
     setBusy(false);
   }
 
-  function applyPlayerTurn(totals: Record<TileType, number>) {
+  function applyTurnEffects(totals: Record<TileType, number>, side: Side, maxSize: number) {
+    const isPlayer = side === "player";
+    const atk = isPlayer ? cat.atk : enemy.atk;
+    const def = isPlayer ? 0 : cat.def; // defense reduces damage taken BY the player from the enemy
+    const maxMp = isPlayer ? cat.mp : ENEMY_MAX_MP;
+
     let dmg = 0;
     let healAmt = 0;
     let shieldGain = 0;
     let mpGain = 0;
     let scoreGain = 0;
 
-    if (totals.attack > 0) dmg += Math.round(totals.attack * cat.atk * 0.5);
+    if (totals.attack > 0) dmg += Math.round(totals.attack * atk * 0.5);
     if (totals.defense > 0) shieldGain += totals.defense * 3;
     if (totals.heal > 0) healAmt += totals.heal * 6;
     if (totals.mana > 0) mpGain += totals.mana * 10;
     if (totals.gold > 0) scoreGain += totals.gold * 4;
 
     let skillFired = false;
-    setMp((prev) => {
+    const setMpFn = isPlayer ? setMp : setEnemyMp;
+    setMpFn((prev) => {
       let n = prev + mpGain;
       if (n >= maxMp) {
         n -= maxMp;
@@ -143,101 +214,114 @@ export default function BattleScreen({
       }
       return Math.min(maxMp, Math.max(0, n));
     });
-    if (skillFired) dmg += Math.round(cat.atk * 3);
+    if (skillFired) dmg += Math.round(atk * 3);
 
     if (dmg > 0) {
-      playCatPose("shoot", skillFired ? 650 : 400);
+      const finalDmg = Math.max(1, dmg - (isPlayer ? 0 : def));
+      if (isPlayer) {
+        playCatPose("shoot", skillFired ? 650 : 400);
+      } else {
+        playEnemyPose("attack", skillFired ? 650 : 400);
+      }
       setTimeout(
         () => {
-          setEnemyHurt(true);
-          setEnemyHitTick((t) => t + 1);
-          setTimeout(() => setEnemyHurt(false), 400 / speed);
-          spawnFloater(dmg, skillFired ? "crit" : "damage", "enemy");
+          spawnBullet(isPlayer ? "right" : "left", skillFired);
         },
-        skillFired ? 280 : 140
+        isPlayer ? 120 : 180
       );
-      setEnemyHp((h) => {
-        const nh = Math.max(0, h - dmg);
-        pushLog(skillFired ? `Đạn đặc biệt gây ${dmg} sát thương!` : `Bạn bắn, gây ${dmg} sát thương.`, "player");
-        if (nh <= 0) finishBattle(true);
-        return nh;
-      });
+      setTimeout(
+        () => {
+          if (isPlayer) {
+            setEnemyHurt(true);
+            setEnemyHitTick((t) => t + 1);
+            setTimeout(() => setEnemyHurt(false), 400 / speed);
+          } else {
+            setCatHurt(true);
+            setCatHitTick((t) => t + 1);
+            setTimeout(() => setCatHurt(false), 400 / speed);
+          }
+          spawnFloater(finalDmg, skillFired ? "crit" : "damage", isPlayer ? "enemy" : "cat");
+        },
+        (isPlayer ? 120 : 180) + 260
+      );
+
+      if (isPlayer) {
+        setEnemyShield((s) => {
+          const mitigated = Math.max(1, finalDmg - s);
+          setEnemyHp((h) => {
+            const nh = Math.max(0, h - mitigated);
+            pushLog(skillFired ? `Đạn năng lượng gây ${mitigated} sát thương!` : `Bạn bắn, gây ${mitigated} sát thương.`, "player");
+            if (nh <= 0) finishBattle(true);
+            return nh;
+          });
+          return Math.max(0, s - finalDmg);
+        });
+      } else {
+        setShield((s) => {
+          const mitigated = Math.max(1, finalDmg - s);
+          setHp((h) => {
+            const nh = Math.max(0, h - mitigated);
+            pushLog(
+              skillFired ? `${enemy.name} tung đòn năng lượng, gây ${mitigated} sát thương!` : `${enemy.name} bắn, gây ${mitigated} sát thương.`,
+              "enemy"
+            );
+            if (nh <= 0) finishBattle(false);
+            return nh;
+          });
+          return Math.max(0, s - finalDmg);
+        });
+      }
     }
+
     if (healAmt > 0) {
-      setHp((h) => Math.min(cat.hp, h + healAmt));
-      pushLog(`Bạn hồi ${healAmt} máu.`, "player");
-      spawnFloater(healAmt, "heal", "cat");
+      if (isPlayer) {
+        setHp((h) => Math.min(cat.hp, h + healAmt));
+        spawnFloater(healAmt, "heal", "cat");
+        pushLog(`Bạn hồi ${healAmt} máu.`, "player");
+      } else {
+        setEnemyHp((h) => Math.min(enemy.hp, h + healAmt));
+        spawnFloater(healAmt, "heal", "enemy");
+        pushLog(`${enemy.name} hồi ${healAmt} máu.`, "enemy");
+      }
     }
     if (shieldGain > 0) {
-      setShield((s) => s + shieldGain);
-      pushLog(`Bạn dựng khiên +${shieldGain}.`, "player");
+      if (isPlayer) {
+        setShield((s) => s + shieldGain);
+        pushLog(`Bạn dựng khiên +${shieldGain}.`, "player");
+      } else {
+        setEnemyShield((s) => s + shieldGain);
+        pushLog(`${enemy.name} dựng khiên +${shieldGain}.`, "enemy");
+      }
     }
-    if (scoreGain > 0) {
-      pendingScore.current += scoreGain;
+    if (scoreGain > 0 && isPlayer) {
       setScore((s) => s + scoreGain);
       pushLog(`+${scoreGain} điểm.`, "player");
     }
 
-    setTimeout(() => enemyCounterattack(), 500 / speed);
-  }
-
-  function enemyCounterattack() {
-    setPhase((p) => {
-      if (p === "fighting") playEnemyPose("attack", 500);
-      return p;
-    });
-    setShield((currentShield) => {
-      const rawDmg = enemy.atk + Math.round(Math.random() * 4);
-      const mitigated = Math.max(1, rawDmg - currentShield - cat.def);
-      setTimeout(
-        () => {
-          setHp((h) => {
-            const nh = Math.max(0, h - mitigated);
-            pushLog(`${enemy.name} phản công, gây ${mitigated} sát thương.`, "enemy");
-            if (nh <= 0) finishBattle(false);
-            else {
-              setCatHurt(true);
-              setCatHitTick((t) => t + 1);
-              setTimeout(() => setCatHurt(false), 400 / speed);
-            }
-            return nh;
-          });
-          spawnFloater(mitigated, "damage", "cat");
-        },
-        250 / speed
-      );
-      return Math.max(0, currentShield - rawDmg);
+    // ---- Bonus-turn accounting ----
+    const bonus = maxSize >= 5 ? 2 : maxSize === 4 ? 1 : 0;
+    setPendingCredits((prevCredits) => {
+      const remaining = Math.max(0, prevCredits - 1) + bonus;
+      if (bonus > 0) pushLog(`Ghép ${maxSize} viên — ${side === "player" ? "bạn" : enemy.name} được +${bonus} lượt!`, "system");
+      if (remaining > 0) {
+        return remaining; // same side continues
+      }
+      setTurn(side === "player" ? "enemy" : "player");
+      return 1;
     });
   }
 
   function finishBattle(won: boolean) {
     setPhase(won ? "victory" : "defeat");
+    stopPlayerTimer();
     if (won) playEnemyPose("dead", 99999);
     else playCatPose("dead", 99999);
   }
 
-  useEffect(() => {
-    if (!autoBattle || busy || phase !== "fighting") return;
-    const t = setTimeout(() => {
-      const move = findAnyValidMove(board);
-      if (move) handleSwap(move[0], move[1], move[2], move[3]);
-    }, 550 / speed);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoBattle, busy, phase, board, speed]);
-
-  const catSprite =
-    catPose === "shoot" && cat.sprite.shoot
-      ? cat.sprite.shoot
-      : catPose === "dead"
-      ? cat.sprite.dead
-      : cat.sprite.idle;
-  const enemySprite =
-    enemyPose === "attack" && enemy.sprite.attack
-      ? enemy.sprite.attack
-      : enemyPose === "dead"
-      ? enemy.sprite.dead
-      : enemy.sprite.idle;
+  const catSprite = catPose === "shoot" && cat.sprite.shoot ? cat.sprite.shoot : cat.sprite.idle;
+  const enemySprite = enemyPose === "attack" && enemy.sprite.attack ? enemy.sprite.attack : enemy.sprite.idle;
+  const catDefeated = phase === "defeat";
+  const enemyDefeated = phase === "victory";
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-2 overflow-x-hidden p-3">
@@ -248,32 +332,38 @@ export default function BattleScreen({
         <span className="shrink-0 rounded-full border border-amber-600 bg-slate-900 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300">
           Hiệp {round}
         </span>
-        <div className="flex shrink-0 gap-1">
-          <button
-            onClick={() => setAutoBattle((a) => !a)}
-            className={`rounded px-2 py-1 text-[10px] font-semibold ${autoBattle ? "bg-amber-500 text-slate-900" : "bg-slate-800 text-amber-300"}`}
-          >
-            Tự Động
-          </button>
-          <button
-            onClick={() => setSpeed((s) => (s === 1 ? 2 : 1))}
-            className={`rounded px-2 py-1 text-[10px] font-semibold ${speed === 2 ? "bg-amber-500 text-slate-900" : "bg-slate-800 text-amber-300"}`}
-          >
-            x{speed}
-          </button>
-        </div>
+        <span
+          className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
+            turn === "player" ? "bg-sky-600 text-white" : "bg-red-600 text-white"
+          }`}
+        >
+          {turn === "player" ? "Lượt của bạn" : "Lượt đối thủ"}
+        </span>
+        <button
+          onClick={() => setSpeed((s) => (s === 1 ? 2 : 1))}
+          className={`shrink-0 rounded px-2 py-1 text-[10px] font-semibold ${speed === 2 ? "bg-amber-500 text-slate-900" : "bg-slate-800 text-amber-300"}`}
+        >
+          x{speed}
+        </button>
       </div>
 
       <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-amber-700/50 bg-slate-900/80 p-2">
-          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-amber-400 bg-slate-800">
-            <AnimatedSprite src={cat.sprite.idle.src} frames={cat.sprite.idle.frames} fps={10} className="h-full w-full scale-150 bg-center" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-xl border border-amber-700/50 bg-slate-900/80 p-2">
+          <div className="flex items-center gap-2">
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-amber-400 bg-slate-800">
+              <AnimatedSprite src={cat.sprite.idle.src} frames={cat.sprite.idle.frames} fps={10} className="h-full w-full scale-150" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[11px] font-semibold text-amber-200">{cat.name}</p>
+              <Bar color="bg-red-500" value={hp} max={cat.hp} />
+              <Bar color="bg-sky-500" value={mp} max={cat.mp} />
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-semibold text-amber-200">{cat.name}</p>
-            <Bar color="bg-red-500" value={hp} max={cat.hp} />
-            <Bar color="bg-sky-500" value={mp} max={maxMp} />
-          </div>
+          {timerActive && (
+            <div className="h-1 w-full overflow-hidden rounded-full bg-slate-800">
+              <div key={timerRunId} className="turn-timer-bar h-full bg-amber-400" style={{ animationDuration: `${TURN_SECONDS / speed}s` }} />
+            </div>
+          )}
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-red-700/50 bg-slate-900/80 p-2">
           <div className="min-w-0 flex-1 text-right">
@@ -281,23 +371,25 @@ export default function BattleScreen({
             <Bar color="bg-red-500" value={enemyHp} max={enemy.hp} align="right" />
           </div>
           <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-red-500 bg-slate-800">
-            <AnimatedSprite src={enemy.sprite.idle.src} frames={enemy.sprite.idle.frames} fps={10} className="h-full w-full scale-150 bg-center" />
+            <AnimatedSprite src={enemy.sprite.idle.src} frames={enemy.sprite.idle.frames} fps={10} className="h-full w-full scale-150" />
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-700/30 bg-slate-950/40 p-2">
+      <div className="relative flex items-center justify-between gap-2 rounded-xl border border-amber-700/30 bg-slate-950/40 p-2">
         <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible">
           <div className="h-full w-full overflow-hidden">
             <div key={catHitTick} className={`h-full w-full ${catHurt ? "anim-hurt" : catPose === "shoot" ? "anim-attack-right" : ""}`}>
-              <AnimatedSprite
-                key={catPlayKey}
-                src={catSprite.src}
-                frames={catSprite.frames}
-                fps={catPose === "idle" ? 8 : 14}
-                loop={catPose === "idle"}
-                className="h-full w-full bg-center bg-no-repeat"
-              />
+              <div className={`h-full w-full ${catDefeated ? "anim-dead" : ""}`}>
+                <AnimatedSprite
+                  key={catPlayKey}
+                  src={catSprite.src}
+                  frames={catSprite.frames}
+                  fps={catPose === "idle" ? 8 : 14}
+                  loop={catPose === "idle" && !catDefeated}
+                  className="h-full w-full"
+                />
+              </div>
             </div>
           </div>
           {floaters
@@ -308,18 +400,20 @@ export default function BattleScreen({
         </div>
         {shield > 0 && <span className="shrink-0 text-xs text-sky-300">🛡 +{shield}</span>}
         <div className="shrink-0 text-2xl">🔫</div>
+        {enemyShield > 0 && <span className="shrink-0 text-xs text-red-300">🛡 +{enemyShield}</span>}
         <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible rounded-lg border border-red-700/40 bg-slate-900/60">
           <div className="h-full w-full overflow-hidden">
             <div key={enemyHitTick} className={`h-full w-full ${enemyHurt ? "anim-hurt" : enemyPose === "attack" ? "anim-attack-left" : ""}`}>
-              <AnimatedSprite
-                key={enemyPlayKey}
-                src={enemySprite.src}
-                frames={enemySprite.frames}
-                fps={enemyPose === "idle" ? 8 : 14}
-                loop={enemyPose === "idle"}
-                facing="left"
-                className="h-full w-full bg-center bg-no-repeat"
-              />
+              <div className={`h-full w-full ${enemyDefeated ? "anim-dead" : ""}`}>
+                <AnimatedSprite
+                  key={enemyPlayKey}
+                  src={enemySprite.src}
+                  frames={enemySprite.frames}
+                  fps={enemyPose === "idle" ? 8 : 14}
+                  loop={enemyPose === "idle" && !enemyDefeated}
+                  className="h-full w-full"
+                />
+              </div>
             </div>
           </div>
           {floaters
@@ -328,9 +422,19 @@ export default function BattleScreen({
               <FloatingNumber key={f.id} value={f.value} kind={f.kind} style={{ left: "50%", top: "0%", transform: "translateX(-50%)" }} />
             ))}
         </div>
+        {bullets.map((b) => (
+          <Bullet key={b.id} direction={b.direction} crit={b.crit} />
+        ))}
       </div>
 
-      <Match3Grid board={board} onSwap={handleSwap} disabled={busy || phase !== "fighting" || autoBattle} bursts={bursts} />
+      <Match3Grid
+        board={board}
+        onSwap={handleSwap}
+        disabled={busy || phase !== "fighting" || turn !== "player"}
+        bursts={bursts}
+        fallingCells={fallingCells}
+        updateTick={updateTick}
+      />
 
       <div className="grid grid-cols-4 gap-1.5">
         {SKILL_LEGEND.map((s) => (
@@ -370,24 +474,6 @@ function Bar({ color, value, max, align }: { color: string; value: number; max: 
       <div className={`h-full ${color} transition-all duration-300`} style={{ width: `${pct}%` }} />
     </div>
   );
-}
-
-function findAnyValidMove(board: Board): [number, number, number, number] | null {
-  for (let r = 0; r < BOARD_SIZE; r++) {
-    for (let c = 0; c < BOARD_SIZE; c++) {
-      if (c < BOARD_SIZE - 1) {
-        const test = cloneBoard(board);
-        swapCells(test, r, c, r, c + 1);
-        if (findMatches(test).length > 0) return [r, c, r, c + 1];
-      }
-      if (r < BOARD_SIZE - 1) {
-        const test = cloneBoard(board);
-        swapCells(test, r, c, r + 1, c);
-        if (findMatches(test).length > 0) return [r, c, r + 1, c];
-      }
-    }
-  }
-  return null;
 }
 
 function sleep(ms: number) {

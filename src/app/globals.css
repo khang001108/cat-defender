@@ -56,6 +56,40 @@ html {
 .anim-attack-left { animation: lunge-left 0.4s ease-out; }
 .anim-dead { animation: fall-dead 0.6s ease-out forwards; }
 
+@keyframes tile-drop-in {
+  0% { transform: translateY(-130%) scale(0.85); opacity: 0.4; }
+  70% { transform: translateY(6%) scale(1.03); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.tile-drop-in { animation: tile-drop-in 0.32s cubic-bezier(0.34, 1.2, 0.64, 1) both; }
+
+/* ---- Bullet projectile: travels from the shooter to the target, then the wrapper is removed ---- */
+@keyframes bullet-fly-right {
+  0% { left: var(--bullet-start, 10%); opacity: 1; }
+  85% { opacity: 1; }
+  100% { left: var(--bullet-end, 90%); opacity: 0.3; }
+}
+@keyframes bullet-fly-left {
+  0% { right: var(--bullet-start, 10%); opacity: 1; }
+  85% { opacity: 1; }
+  100% { right: var(--bullet-end, 90%); opacity: 0.3; }
+}
+.fx-bullet-right { animation: bullet-fly-right 0.32s linear forwards; }
+.fx-bullet-left { animation: bullet-fly-left 0.32s linear forwards; }
+
+@keyframes turn-timer-shrink {
+  from { width: 100%; }
+  to { width: 0%; }
+}
+.turn-timer-bar { animation: turn-timer-shrink linear forwards; }
+
+@keyframes bonus-turn-pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  40% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.fx-bonus-pop { animation: bonus-turn-pop 0.4s ease-out; }
+
 /* ---- Gem tile effects: selection glow, impact burst, floating damage/heal numbers ---- */
 @keyframes tile-select-pulse {
   0%, 100% { filter: drop-shadow(0 0 4px var(--tile-glow)); }

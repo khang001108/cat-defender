@@ -100,15 +100,51 @@ export function areAdjacent(r1: number, c1: number, r2: number, c2: number): boo
   return Math.abs(r1 - r2) + Math.abs(c1 - c2) === 1;
 }
 
+// Finds a valid swap, scoring candidates by match size and a type preference (AI likes big
+// matches and attack tiles). Returns null if no valid move exists.
+export function findBestMove(
+  board: Board,
+  typePriority: Partial<Record<TileType, number>> = {}
+): [number, number, number, number] | null {
+  const size = board.length;
+  let best: { move: [number, number, number, number]; score: number } | null = null;
+
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const candidates: [number, number, number, number][] = [];
+      if (c < size - 1) candidates.push([r, c, r, c + 1]);
+      if (r < size - 1) candidates.push([r, c, r + 1, c]);
+      for (const [r1, c1, r2, c2] of candidates) {
+        const test = cloneBoard(board);
+        swapCells(test, r1, c1, r2, c2);
+        const matches = findMatches(test);
+        if (matches.length === 0) continue;
+        const size1 = matches.reduce((sum, m) => sum + m.cells.length, 0);
+        const typeBonus = matches.reduce((sum, m) => sum + (typePriority[m.type] ?? 0), 0);
+        const score = size1 + typeBonus;
+        if (!best || score > best.score) best = { move: [r1, c1, r2, c2], score };
+      }
+    }
+  }
+  return best?.move ?? null;
+}
+
 // Remove matched cells, drop tiles down, refill from top. Returns new board + count per type removed
-// + the exact cells that were cleared (for impact-effect rendering).
-export function resolveMatches(
-  board: Board
-): { board: Board; counts: Record<TileType, number>; clearedCells: { r: number; c: number; type: TileType }[] } {
+// + the exact cells that were cleared (for impact-effect rendering) + the largest single match size
+// (for bonus-turn rules) + which cells were freshly spawned from the top (for drop-in animation).
+export function resolveMatches(board: Board): {
+  board: Board;
+  counts: Record<TileType, number>;
+  clearedCells: { r: number; c: number; type: TileType }[];
+  maxMatchSize: number;
+  newCells: { r: number; c: number }[];
+} {
   const size = board.length;
   const counts: Record<TileType, number> = { attack: 0, defense: 0, mana: 0, heal: 0, gold: 0 };
   const matches = findMatches(board);
-  if (matches.length === 0) return { board, counts, clearedCells: [] };
+  if (matches.length === 0) return { board, counts, clearedCells: [], maxMatchSize: 0, newCells: [] };
+
+  const maxMatchSize = Math.max(...matches.map((m) => m.cells.length));
 
   const toRemove = new Set<string>();
   const clearedCells: { r: number; c: number; type: TileType }[] = [];
@@ -130,15 +166,19 @@ export function resolveMatches(
     (newBoard[r][c] as unknown) = null;
   }
 
-  // Drop down per column
+  // Drop down per column, tracking which cells got freshly-spawned tiles
+  const newCells: { r: number; c: number }[] = [];
   for (let c = 0; c < size; c++) {
     const col: (TileType | null)[] = [];
     for (let r = 0; r < size; r++) col.push(newBoard[r][c] as TileType | null);
     const remaining = col.filter((v) => v !== null) as TileType[];
     const missing = size - remaining.length;
     const filled = Array.from({ length: missing }, () => randomTile()).concat(remaining);
-    for (let r = 0; r < size; r++) newBoard[r][c] = filled[r];
+    for (let r = 0; r < size; r++) {
+      newBoard[r][c] = filled[r];
+      if (r < missing) newCells.push({ r, c });
+    }
   }
 
-  return { board: newBoard, counts, clearedCells };
+  return { board: newBoard, counts, clearedCells, maxMatchSize, newCells };
 }
