@@ -13,13 +13,14 @@ type Side = "player" | "enemy";
 type CatPose = "idle" | "shoot" | "dead";
 type EnemyPose = "idle" | "attack" | "dead";
 
-const TURN_SECONDS = 12;
 const ENEMY_MAX_MP = 100;
+const DISPLAY_MAX_TIME = 30; // seconds, just for the bar-fill percentage
+const TIME_PER_ENERGY_TILE = 4; // seconds gained per matched energy tile
 
 const SKILL_LEGEND: { type: TileType; name: string; desc: string }[] = [
   { type: "attack", name: "Bắn", desc: "Gây sát thương" },
   { type: "heal", name: "Hồi Máu", desc: "Hồi máu bản thân" },
-  { type: "mana", name: "Năng Lượng", desc: "Tích năng lượng" },
+  { type: "mana", name: "Năng Lượng", desc: "Cộng thời gian" },
   { type: "defense", name: "Khiên", desc: "Giảm sát thương" },
 ];
 
@@ -36,7 +37,7 @@ export default function BattleScreen({
 }) {
   const [board, setBoard] = useState<Board>(() => createBoard());
   const [hp, setHp] = useState(cat.hp);
-  const [mp, setMp] = useState(0);
+  const [timeBank, setTimeBank] = useState(Math.round(cat.mp / 5));
   const [shield, setShield] = useState(0);
   const [enemyHp, setEnemyHp] = useState(enemy.hp);
   const [enemyMp, setEnemyMp] = useState(0);
@@ -75,11 +76,6 @@ export default function BattleScreen({
   const [fallingCells, setFallingCells] = useState<{ r: number; c: number }[]>([]);
   const [updateTick, setUpdateTick] = useState(0);
 
-  // Turn timer — only the player is under time pressure
-  const [timerRunId, setTimerRunId] = useState(0);
-  const [timerActive, setTimerActive] = useState(false);
-  const timerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   function spawnBursts(cells: { r: number; c: number; type: TileType }[]) {
     const fresh = cells.map((c) => ({ id: burstId.current++, r: c.r, c: c.c, type: c.type }));
     setBursts((b) => [...b, ...fresh]);
@@ -113,28 +109,23 @@ export default function BattleScreen({
     if (p !== "dead") setTimeout(() => setEnemyPose((cur) => (cur === p ? "idle" : cur)), duration / speed);
   }
 
-  // ---- Turn timer (player only) ----
-  function startPlayerTimer() {
-    setTimerActive(true);
-    setTimerRunId((k) => k + 1);
-    if (timerTimeout.current) clearTimeout(timerTimeout.current);
-    timerTimeout.current = setTimeout(() => {
-      if (phase === "fighting") {
-        pushLog("Hết giờ! Bạn bỏ lỡ lượt và thua trận.", "system");
-        finishBattle(false);
-      }
-    }, (TURN_SECONDS * 1000) / speed);
-  }
-  function stopPlayerTimer() {
-    setTimerActive(false);
-    if (timerTimeout.current) clearTimeout(timerTimeout.current);
-  }
+  // ---- Time bank: ticks down continuously during the player's turn. Turns changing hands does
+  // NOT refill it — only matching energy tiles does. Hits 0 -> instant defeat. ----
+  useEffect(() => {
+    if (turn !== "player" || phase !== "fighting" || busy) return;
+    const interval = setInterval(() => {
+      setTimeBank((t) => Math.max(0, t - 0.1));
+    }, 100);
+    return () => clearInterval(interval);
+  }, [turn, phase, busy]);
 
   useEffect(() => {
-    if (turn === "player" && phase === "fighting" && !busy) startPlayerTimer();
-    else stopPlayerTimer();
+    if (timeBank <= 0 && phase === "fighting") {
+      pushLog("Hết thời gian! Bạn thua trận.", "system");
+      finishBattle(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turn, busy, phase]);
+  }, [timeBank]);
 
   // ---- AI turn trigger ----
   useEffect(() => {
@@ -155,7 +146,6 @@ export default function BattleScreen({
     const test = cloneBoard(board);
     swapCells(test, r1, c1, r2, c2);
     if (findMatches(test).length === 0) return;
-    stopPlayerTimer();
     await processCascade(test, "player");
   }
 
@@ -190,7 +180,6 @@ export default function BattleScreen({
     const isPlayer = side === "player";
     const atk = isPlayer ? cat.atk : enemy.atk;
     const def = isPlayer ? 0 : cat.def; // defense reduces damage taken BY the player from the enemy
-    const maxMp = isPlayer ? cat.mp : ENEMY_MAX_MP;
 
     let dmg = 0;
     let healAmt = 0;
@@ -201,19 +190,32 @@ export default function BattleScreen({
     if (totals.attack > 0) dmg += Math.round(totals.attack * atk * 0.5);
     if (totals.defense > 0) shieldGain += totals.defense * 3;
     if (totals.heal > 0) healAmt += totals.heal * 6;
-    if (totals.mana > 0) mpGain += totals.mana * 10;
     if (totals.gold > 0) scoreGain += totals.gold * 4;
 
-    let skillFired = false;
-    const setMpFn = isPlayer ? setMp : setEnemyMp;
-    setMpFn((prev) => {
-      let n = prev + mpGain;
-      if (n >= maxMp) {
-        n -= maxMp;
-        skillFired = true;
+    // Energy tiles behave differently per side: the player's energy directly refills their
+    // battle-long time bank (turns changing hands does NOT refill it, only this does); the
+    // enemy still uses the classic charge-to-special mechanic.
+    if (totals.mana > 0) {
+      if (isPlayer) {
+        const timeGain = totals.mana * TIME_PER_ENERGY_TILE;
+        setTimeBank((t) => t + timeGain);
+        pushLog(`Nạp năng lượng: +${timeGain}s thời gian!`, "player");
+      } else {
+        mpGain += totals.mana * 10;
       }
-      return Math.min(maxMp, Math.max(0, n));
-    });
+    }
+
+    let skillFired = false;
+    if (!isPlayer) {
+      setEnemyMp((prev) => {
+        let n = prev + mpGain;
+        if (n >= ENEMY_MAX_MP) {
+          n -= ENEMY_MAX_MP;
+          skillFired = true;
+        }
+        return Math.min(ENEMY_MAX_MP, Math.max(0, n));
+      });
+    }
     if (skillFired) dmg += Math.round(atk * 3);
 
     if (dmg > 0) {
@@ -313,7 +315,6 @@ export default function BattleScreen({
 
   function finishBattle(won: boolean) {
     setPhase(won ? "victory" : "defeat");
-    stopPlayerTimer();
     if (won) playEnemyPose("dead", 99999);
     else playCatPose("dead", 99999);
   }
@@ -356,14 +357,20 @@ export default function BattleScreen({
             <div className="min-w-0 flex-1">
               <p className="truncate text-[11px] font-semibold text-amber-200">{cat.name}</p>
               <Bar color="bg-red-500" value={hp} max={cat.hp} />
-              <Bar color="bg-sky-500" value={mp} max={cat.mp} />
             </div>
           </div>
-          {timerActive && (
-            <div className="h-1 w-full overflow-hidden rounded-full bg-slate-800">
-              <div key={timerRunId} className="turn-timer-bar h-full bg-amber-400" style={{ animationDuration: `${TURN_SECONDS / speed}s` }} />
+          <div className="flex items-center gap-1.5">
+            <span className="shrink-0 text-[10px] text-amber-300">⏱</span>
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+              <div
+                className={`h-full transition-all duration-150 ${timeBank <= 5 ? "bg-red-500" : "bg-amber-400"}`}
+                style={{ width: `${Math.min(100, (timeBank / DISPLAY_MAX_TIME) * 100)}%` }}
+              />
             </div>
-          )}
+            <span className={`shrink-0 text-[10px] font-semibold ${timeBank <= 5 ? "text-red-400" : "text-amber-200"}`}>
+              {timeBank.toFixed(1)}s
+            </span>
+          </div>
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-red-700/50 bg-slate-900/80 p-2">
           <div className="min-w-0 flex-1 text-right">
@@ -376,7 +383,11 @@ export default function BattleScreen({
         </div>
       </div>
 
-      <div className="relative flex items-center justify-between gap-2 rounded-xl border border-amber-700/30 bg-slate-950/40 p-2">
+      <div
+        className="relative flex items-center justify-between gap-2 overflow-hidden rounded-xl border border-amber-700/30 bg-slate-950/40 bg-cover bg-center p-2"
+        style={{ backgroundImage: "url(/sprites/battle_bg.jpg)" }}
+      >
+        <div className="absolute inset-0 bg-slate-950/25" />
         <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible">
           <div className="h-full w-full overflow-hidden">
             <div key={catHitTick} className={`h-full w-full ${catHurt ? "anim-hurt" : catPose === "shoot" ? "anim-attack-right" : ""}`}>
@@ -398,10 +409,9 @@ export default function BattleScreen({
               <FloatingNumber key={f.id} value={f.value} kind={f.kind} style={{ left: "50%", top: "0%", transform: "translateX(-50%)" }} />
             ))}
         </div>
-        {shield > 0 && <span className="shrink-0 text-xs text-sky-300">🛡 +{shield}</span>}
-        <div className="shrink-0 text-2xl">🔫</div>
-        {enemyShield > 0 && <span className="shrink-0 text-xs text-red-300">🛡 +{enemyShield}</span>}
-        <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible rounded-lg border border-red-700/40 bg-slate-900/60">
+        {shield > 0 && <span className="relative z-10 shrink-0 text-xs text-sky-300">🛡 +{shield}</span>}
+        {enemyShield > 0 && <span className="relative z-10 shrink-0 text-xs text-red-300">🛡 +{enemyShield}</span>}
+        <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible rounded-lg border border-red-700/40 bg-slate-900/50">
           <div className="h-full w-full overflow-hidden">
             <div key={enemyHitTick} className={`h-full w-full ${enemyHurt ? "anim-hurt" : enemyPose === "attack" ? "anim-attack-left" : ""}`}>
               <div className={`h-full w-full ${enemyDefeated ? "anim-dead" : ""}`}>
@@ -427,6 +437,14 @@ export default function BattleScreen({
         ))}
       </div>
 
+      <div className="max-h-20 space-y-0.5 overflow-y-auto rounded-lg bg-slate-950/60 p-2 text-[11px]">
+        {log.map((l) => (
+          <div key={l.id} className={l.kind === "player" ? "text-sky-300" : l.kind === "enemy" ? "text-red-300" : "text-amber-300"}>
+            {l.text}
+          </div>
+        ))}
+      </div>
+
       <Match3Grid
         board={board}
         onSwap={handleSwap}
@@ -446,21 +464,15 @@ export default function BattleScreen({
         ))}
       </div>
 
-      <div className="max-h-20 space-y-0.5 overflow-y-auto rounded-lg bg-slate-950/60 p-2 text-[11px]">
-        {log.map((l) => (
-          <div key={l.id} className={l.kind === "player" ? "text-sky-300" : l.kind === "enemy" ? "text-red-300" : "text-amber-300"}>
-            {l.text}
-          </div>
-        ))}
-      </div>
-
       {phase !== "fighting" && (
-        <div className="rounded-xl border border-amber-500 bg-slate-900 p-4 text-center">
-          <p className="mb-2 text-lg font-bold text-amber-300">{phase === "victory" ? "🎉 Chiến thắng!" : "💀 Thất bại"}</p>
-          {phase === "victory" && <p className="mb-3 text-sm text-amber-100">Điểm: {score}</p>}
-          <button onClick={() => onResult(phase === "victory")} className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-slate-900">
-            Tiếp tục
-          </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+          <div className="w-full max-w-xs rounded-xl border border-amber-500 bg-slate-900 p-5 text-center shadow-2xl">
+            <p className="mb-2 text-xl font-bold text-amber-300">{phase === "victory" ? "🎉 Chiến thắng!" : "💀 Thất bại"}</p>
+            {phase === "victory" && <p className="mb-3 text-sm text-amber-100">Điểm: {score}</p>}
+            <button onClick={() => onResult(phase === "victory")} className="rounded-lg bg-amber-500 px-5 py-2 font-semibold text-slate-900">
+              Tiếp tục
+            </button>
+          </div>
         </div>
       )}
     </div>

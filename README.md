@@ -5,15 +5,17 @@ Game ghép-3 (match-3) theo phong cách bắn súng, dùng asset "Cartoon Cat De
 Đây là bản MVP tập trung vào lối chơi cốt lõi (chọn mèo → chọn đối thủ → chiến đấu → chơi lại), chưa có bản đồ/cửa hàng/lên cấp — sẽ mở rộng thêm sau khi lối chơi chính đã ổn.
 
 ## Tính năng
+- **8 boss zombie** để đấu (5 thường + 3 trùm), mỗi con có animation idle + tấn công + chết thật
 - **4 boss mèo** để chọn, mỗi con có animation idle + bắn thật (frame-by-frame, không phải ảnh tĩnh)
-- **2 đối thủ AI**: Zombie Cún Thường (dễ) và Trùm Zombie Thùng Sắt (khó) — animation idle/tấn công/chết đầy đủ
-- **Bàn cờ dùng chung, đánh theo lượt**: mèo và địch thay phiên nhau ghép trên CÙNG một bàn cờ — đến lượt ai người đó đánh, không còn kiểu "mỗi bên tự tung xúc xắc riêng"
-- **Đồng hồ lượt đi**: mỗi lượt của bạn có giới hạn thời gian (thanh vàng dưới thẻ trạng thái mèo) — hết giờ mà chưa đi nước nào coi như thua trận ngay
-- **Thêm lượt khi ghép lớn**: ghép 4 viên được cộng thêm 1 lượt, ghép 5 viên được cộng thêm 2 lượt (áp dụng cho cả bạn lẫn địch)
+- **Bàn cờ dùng chung, đánh theo lượt**: mèo và địch thay phiên nhau ghép trên CÙNG một bàn cờ — đến lượt ai người đó đánh
+- **Đồng hồ thời gian cho cả trận** (không phải mỗi lượt): mỗi mèo có sẵn 1 lượng thời gian ban đầu (tùy chỉ số MP của mèo), thời gian chỉ chạy khi tới lượt bạn và cạn dần liên tục — **đổi lượt không hồi thời gian**, chỉ có ghép viên Năng Lượng mới cộng thêm giây. Hết giờ giữa lượt của bạn là thua ngay
+- **Thêm lượt khi ghép lớn**: ghép 4 viên +1 lượt, ghép 5 viên +2 lượt (áp dụng cho cả bạn lẫn địch)
+- **Nền chiến trường lấy từ asset gốc** (con hẻm đường phố), không còn nền trơn
 - **Hiệu ứng đạn bắn thật**: viên đạn bay từ người bắn sang mục tiêu mỗi khi có sát thương
-- **Hoạt ảnh ghép mượt**: khi chọn 2 ô để đổi chỗ, ô sẽ trượt mượt sang vị trí mới; viên mới rơi từ trên xuống có hiệu ứng nảy nhẹ khi ghép nổ
-- **Mèo có hiệu ứng gục ngã** khi thua (đổ nghiêng, mờ dần) dù asset gốc không có sẵn khung hình "chết" riêng cho mèo
-- Cơ chế ghép-3 giữ nguyên: viên đá gem (bắn/khiên/năng lượng/hồi máu/điểm), hiệu ứng nổ khi ghép, số sát thương bay lên, vòng đếm "Hiệp"
+- **Hoạt ảnh ghép mượt**: ô trượt mượt khi đổi chỗ; viên mới rơi từ trên xuống có nảy nhẹ
+- **Mèo có hiệu ứng gục ngã** khi thua (đổ nghiêng, mờ dần)
+- **Popup kết quả (thắng/thua) hiện giữa màn hình**, không cần cuộn xuống mới thấy
+- **Log trận đấu nằm ngay dưới khung chiến trường**, dễ theo dõi diễn biến
 - Giao diện portrait tối ưu điện thoại
 
 ## Chạy thử local
