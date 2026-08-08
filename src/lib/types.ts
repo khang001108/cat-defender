@@ -17,6 +17,7 @@ export interface CatDefinition {
   atk: number;
   def: number;
   sprite: SpriteSet;
+  skillArchetype: import("./skills").SkillArchetype;
 }
 
 export interface EnemyDefinition {
@@ -32,4 +33,22 @@ export interface BattleLogEntry {
   id: number;
   text: string;
   kind: "player" | "enemy" | "system";
+}
+
+export interface UpgradeItem {
+  id: string;
+  name: string;
+  desc: string;
+  icon: string;
+  stat: "atk" | "def" | "hp";
+  amount: number;
+  baseCost: number;
+}
+
+export interface PlayerProfile {
+  displayName: string;
+  loggedIn: boolean;
+  notificationsEnabled: boolean;
+  gold: number;
+  upgradeLevels: Record<string, number>;
 }

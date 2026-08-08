@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Board, areAdjacent } from "@/lib/board";
 import { TileType } from "@/lib/types";
 import { TileIcon, TILE_COLORS } from "./TileIcon";
@@ -13,6 +13,12 @@ export interface Burst {
   type: TileType;
 }
 
+export interface ExternalSwapSignal {
+  a: [number, number];
+  b: [number, number];
+  key: number;
+}
+
 export default function Match3Grid({
   board,
   onSwap,
@@ -20,6 +26,8 @@ export default function Match3Grid({
   bursts = [],
   fallingCells,
   updateTick = 0,
+  externalSwap,
+  hint,
 }: {
   board: Board;
   onSwap: (r1: number, c1: number, r2: number, c2: number) => void;
@@ -29,12 +37,24 @@ export default function Match3Grid({
   fallingCells?: { r: number; c: number }[];
   /** bump this whenever the board changes so falling cells replay their animation */
   updateTick?: number;
+  /** the AI plays through this too, so its move slides visually just like the player's own swaps */
+  externalSwap?: ExternalSwapSignal | null;
+  /** cells to gently pulse as a hint after the player has been idle for a while */
+  hint?: [number, number][] | null;
 }) {
   const [selected, setSelected] = useState<[number, number] | null>(null);
   const [swapAnim, setSwapAnim] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const size = board.length;
 
   const fallingSet = new Set((fallingCells ?? []).map((c) => `${c.r},${c.c}`));
+  const hintSet = new Set((hint ?? []).map(([r, c]) => `${r},${c}`));
+
+  useEffect(() => {
+    if (!externalSwap) return;
+    setSwapAnim({ a: externalSwap.a, b: externalSwap.b });
+    const t = setTimeout(() => setSwapAnim(null), 220);
+    return () => clearTimeout(t);
+  }, [externalSwap]);
 
   function handleClick(r: number, c: number) {
     if (disabled || swapAnim) return;
@@ -67,6 +87,7 @@ export default function Match3Grid({
             const isSelected = selected && selected[0] === r && selected[1] === c;
             const key = `${r},${c}`;
             const isFalling = fallingSet.has(key);
+            const isHint = hintSet.has(key);
 
             let swapTransform = "";
             if (swapAnim) {
@@ -91,7 +112,7 @@ export default function Match3Grid({
                 }}
                 className={`flex aspect-square items-center justify-center rounded-lg bg-slate-800 p-1.5 ${
                   swapTransform ? "" : "transition-transform"
-                } ${isSelected ? "tile-selected scale-95" : "hover:scale-105"} disabled:opacity-60`}
+                } ${isSelected ? "tile-selected scale-95" : "hover:scale-105"} ${isHint ? "hint-pulse" : ""} disabled:opacity-60`}
               >
                 <div key={isFalling ? `${key}-${updateTick}` : key} className={isFalling ? "tile-drop-in" : ""} style={isFalling ? { animationDelay: `${r * 28}ms` } : undefined}>
                   <TileIcon type={tile} className="h-full w-full" />

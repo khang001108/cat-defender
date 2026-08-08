@@ -1,4 +1,5 @@
-import { CatDefinition, EnemyDefinition } from "./types";
+import { CatDefinition, EnemyDefinition, UpgradeItem } from "./types";
+import { skillArchetypeFor } from "./skills";
 
 function catSprite(key: string) {
   return {
@@ -8,23 +9,29 @@ function catSprite(key: string) {
   };
 }
 
-export const CATS: CatDefinition[] = [
-  { id: "cat1", name: "Mèo Cam", role: "Cân bằng, dễ chơi", hp: 120, mp: 100, atk: 14, def: 6, sprite: catSprite("cat1") },
-  { id: "cat2", name: "Mèo Kính Bơi", role: "Sát thương ổn định", hp: 115, mp: 105, atk: 15, def: 5, sprite: catSprite("cat2") },
-  { id: "cat3", name: "Mèo Khăn Rằn", role: "Máu cao", hp: 130, mp: 95, atk: 12, def: 7, sprite: catSprite("cat3") },
-  { id: "cat4", name: "Mèo Mũ Vàng", role: "Tấn công nhanh", hp: 100, mp: 115, atk: 17, def: 4, sprite: catSprite("cat4") },
-  { id: "cat5", name: "Mèo Đốm", role: "Cân bằng", hp: 118, mp: 100, atk: 14, def: 6, sprite: catSprite("cat5") },
-  { id: "cat6", name: "Mèo Xanh Dương", role: "Phòng thủ tốt", hp: 128, mp: 92, atk: 12, def: 8, sprite: catSprite("cat6") },
-  { id: "cat7", name: "Mèo Cầu Vồng", role: "Đa dụng", hp: 112, mp: 108, atk: 15, def: 5, sprite: catSprite("cat7") },
-  { id: "cat8", name: "Mèo Đen", role: "Sát thương cao, máu thấp", hp: 92, mp: 112, atk: 19, def: 3, sprite: catSprite("cat8") },
-  { id: "cat9", name: "Mèo Xám Mũ Phớt", role: "Sát thương cao, máu thấp", hp: 95, mp: 110, atk: 18, def: 4, sprite: catSprite("cat9") },
-  { id: "cat10", name: "Mèo Đội Trưởng", role: "Chỉ huy, cân bằng", hp: 122, mp: 102, atk: 14, def: 6, sprite: catSprite("cat10") },
-  { id: "cat11", name: "Mèo Trắng", role: "Tốc độ nhanh, hồi chiêu tốt", hp: 105, mp: 130, atk: 15, def: 5, sprite: catSprite("cat11") },
-  { id: "cat12", name: "Mèo Ngụy Trang", role: "Linh hoạt", hp: 110, mp: 108, atk: 16, def: 5, sprite: catSprite("cat12") },
-  { id: "cat13", name: "Mèo Đặc Nhiệm", role: "Tấn công mạnh", hp: 108, mp: 106, atk: 17, def: 5, sprite: catSprite("cat13") },
-  { id: "cat14", name: "Mèo Vàng Mũ Sắt", role: "Máu cao, phòng thủ tốt", hp: 135, mp: 90, atk: 12, def: 8, sprite: catSprite("cat14") },
-  { id: "cat15", name: "Mèo Chỉ Huy Trưởng", role: "Boss cuối, mạnh toàn diện", hp: 140, mp: 120, atk: 18, def: 7, sprite: catSprite("cat15") },
-];
+export const CATS: CatDefinition[] = (
+  [
+    { id: "cat1", name: "Mèo Cam", role: "Cân bằng, dễ chơi", hp: 120, mp: 100, atk: 14, def: 6 },
+    { id: "cat2", name: "Mèo Kính Bơi", role: "Sát thương ổn định", hp: 115, mp: 105, atk: 15, def: 5 },
+    { id: "cat3", name: "Mèo Khăn Rằn", role: "Máu cao", hp: 130, mp: 95, atk: 12, def: 7 },
+    { id: "cat4", name: "Mèo Mũ Vàng", role: "Tấn công nhanh", hp: 100, mp: 115, atk: 17, def: 4 },
+    { id: "cat5", name: "Mèo Đốm", role: "Cân bằng", hp: 118, mp: 100, atk: 14, def: 6 },
+    { id: "cat6", name: "Mèo Xanh Dương", role: "Phòng thủ tốt", hp: 128, mp: 92, atk: 12, def: 8 },
+    { id: "cat7", name: "Mèo Cầu Vồng", role: "Đa dụng", hp: 112, mp: 108, atk: 15, def: 5 },
+    { id: "cat8", name: "Mèo Đen", role: "Sát thương cao, máu thấp", hp: 92, mp: 112, atk: 19, def: 3 },
+    { id: "cat9", name: "Mèo Xám Mũ Phớt", role: "Sát thương cao, máu thấp", hp: 95, mp: 110, atk: 18, def: 4 },
+    { id: "cat10", name: "Mèo Đội Trưởng", role: "Chỉ huy, cân bằng", hp: 122, mp: 102, atk: 14, def: 6 },
+    { id: "cat11", name: "Mèo Trắng", role: "Tốc độ nhanh, hồi chiêu tốt", hp: 105, mp: 130, atk: 15, def: 5 },
+    { id: "cat12", name: "Mèo Ngụy Trang", role: "Linh hoạt", hp: 110, mp: 108, atk: 16, def: 5 },
+    { id: "cat13", name: "Mèo Đặc Nhiệm", role: "Tấn công mạnh", hp: 108, mp: 106, atk: 17, def: 5 },
+    { id: "cat14", name: "Mèo Vàng Mũ Sắt", role: "Máu cao, phòng thủ tốt", hp: 135, mp: 90, atk: 12, def: 8 },
+    { id: "cat15", name: "Mèo Chỉ Huy Trưởng", role: "Boss cuối, mạnh toàn diện", hp: 140, mp: 120, atk: 18, def: 7 },
+  ] as Omit<CatDefinition, "sprite" | "skillArchetype">[]
+).map((c) => ({
+  ...c,
+  sprite: catSprite(c.id),
+  skillArchetype: skillArchetypeFor(c.atk, c.def, c.mp),
+}));
 
 function regSprite(key: string) {
   return {
@@ -57,4 +64,17 @@ export const ENEMIES: EnemyDefinition[] = [
   { id: "boss5", name: "Trùm Zombie Cơ Bắp", level: 8, hp: 400, atk: 22, sprite: bossSprite("boss5") },
   { id: "boss6", name: "Trùm Zombie Trống Trận", level: 9, hp: 420, atk: 23, sprite: bossSprite("boss6") },
   { id: "boss7", name: "Trùm Zombie Tối Thượng", level: 10, hp: 450, atk: 25, sprite: bossSprite("boss7") },
+];
+
+// Shop upgrades — permanent stat bonuses applied to every cat, bought with in-game gold earned
+// from battles. Icons are the "Extra" power-up icons from the asset kit.
+export const UPGRADES: UpgradeItem[] = [
+  { id: "up1", name: "Tên Lửa", desc: "Tăng sát thương", icon: "/ui/addon1.png", stat: "atk", amount: 1, baseCost: 50 },
+  { id: "up2", name: "Túi Vàng", desc: "Tăng sát thương", icon: "/ui/addon2.png", stat: "atk", amount: 1, baseCost: 60 },
+  { id: "up3", name: "Nổ Diện Rộng", desc: "Tăng sát thương mạnh", icon: "/ui/addon3.png", stat: "atk", amount: 2, baseCost: 90 },
+  { id: "up4", name: "Bom Lửa", desc: "Tăng sát thương mạnh", icon: "/ui/addon4.png", stat: "atk", amount: 2, baseCost: 90 },
+  { id: "up5", name: "Mũ Bảo Hộ", desc: "Tăng phòng thủ", icon: "/ui/addon5.png", stat: "def", amount: 1, baseCost: 50 },
+  { id: "up6", name: "Thùng TNT", desc: "Tăng máu tối đa", icon: "/ui/addon6.png", stat: "hp", amount: 8, baseCost: 55 },
+  { id: "up7", name: "Găng Đấm", desc: "Tăng phòng thủ mạnh", icon: "/ui/addon7.png", stat: "def", amount: 2, baseCost: 90 },
+  { id: "up8", name: "Bình Nước", desc: "Tăng máu tối đa mạnh", icon: "/ui/addon8.png", stat: "hp", amount: 15, baseCost: 90 },
 ];

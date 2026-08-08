@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Board, createBoard, cloneBoard, swapCells, findMatches, resolveMatches, findBestMove } from "@/lib/board";
-import { BattleLogEntry, CatDefinition, EnemyDefinition, TileType } from "@/lib/types";
-import Match3Grid, { Burst } from "./Match3Grid";
-import { FloatingNumber, Bullet, ImpactHit } from "./Effects";
+import { CatDefinition, EnemyDefinition, TileType } from "@/lib/types";
+import { SKILL_SETS, SkillTier } from "@/lib/skills";
+import { BattleMap } from "@/lib/maps";
+import Match3Grid, { Burst, ExternalSwapSignal } from "./Match3Grid";
+import { FloatingNumber, Bullet, ImpactHit, Toast } from "./Effects";
 import { TileIcon } from "./TileIcon";
 import AnimatedSprite from "./AnimatedSprite";
 
@@ -17,6 +19,9 @@ type EnemyPose = "idle" | "attack" | "dead";
 const ENEMY_MAX_MP = 100;
 const MAX_TIME = 180; // 3 minutes total for the whole match — the hard cap energy tiles can refill up to
 const TIME_PER_ENERGY_TILE = 4; // seconds gained per matched energy tile
+const SKILL_TILES_PER_PIP = 3; // matching this many "skill" tiles in one group grants 1 pip
+const MAX_PIPS = 3;
+const HINT_DELAY = 10000; // show a hint after 10s of player inactivity
 
 const SKILL_LEGEND: { type: TileType; name: string; desc: string }[] = [
   { type: "attack", name: "Bắn", desc: "Gây sát thương" },
@@ -26,23 +31,35 @@ const SKILL_LEGEND: { type: TileType; name: string; desc: string }[] = [
 ];
 
 export default function BattleScreen({
-  cat,
-  enemy,
+  catTeam,
+  enemyTeam,
+  map,
   onExit,
   onResult,
 }: {
-  cat: CatDefinition;
-  enemy: EnemyDefinition;
+  catTeam: CatDefinition[];
+  enemyTeam: EnemyDefinition[];
+  map: BattleMap;
   onExit: () => void;
   onResult: (won: boolean) => void;
 }) {
   const [board, setBoard] = useState<Board>(() => createBoard());
-  const [hp, setHp] = useState(cat.hp);
+  const [activeCatIdx, setActiveCatIdx] = useState(0);
+  const [activeEnemyIdx, setActiveEnemyIdx] = useState(0);
+  const [catHpArr, setCatHpArr] = useState(() => catTeam.map((c) => c.hp));
+  const [enemyHpArr, setEnemyHpArr] = useState(() => enemyTeam.map((e) => e.hp));
+
+  const cat = catTeam[activeCatIdx];
+  const enemy = enemyTeam[activeEnemyIdx];
+  const hp = catHpArr[activeCatIdx];
+  const enemyHp = enemyHpArr[activeEnemyIdx];
+
   const [timeBank, setTimeBank] = useState(MAX_TIME);
+  const [enemyTimeBank, setEnemyTimeBank] = useState(MAX_TIME);
   const [shield, setShield] = useState(0);
-  const [enemyHp, setEnemyHp] = useState(enemy.hp);
-  const [enemyMp, setEnemyMp] = useState(0);
   const [enemyShield, setEnemyShield] = useState(0);
+  const [enemyMp, setEnemyMp] = useState(0);
+  const [skillPips, setSkillPips] = useState(0);
   const [score, setScore] = useState(0);
   const [paused, setPaused] = useState(false);
 
@@ -53,8 +70,8 @@ export default function BattleScreen({
   const [pendingCredits, setPendingCredits] = useState(1);
   const [speed, setSpeed] = useState<1 | 2>(1);
 
-  const [log, setLog] = useState<BattleLogEntry[]>([{ id: 0, text: `${enemy.name} xuất hiện!`, kind: "system" }]);
-  const logId = useRef(1);
+  const [toast, setToast] = useState<{ id: number; text: string; kind: "player" | "enemy" | "system" } | null>(null);
+  const toastId = useRef(0);
 
   const [catPose, setCatPose] = useState<CatPose>("idle");
   const [catPlayKey, setCatPlayKey] = useState(0);
@@ -79,33 +96,39 @@ export default function BattleScreen({
 
   const [fallingCells, setFallingCells] = useState<{ r: number; c: number }[]>([]);
   const [updateTick, setUpdateTick] = useState(0);
+  const [externalSwap, setExternalSwap] = useState<ExternalSwapSignal | null>(null);
+  const externalSwapKey = useRef(0);
+
+  const [hint, setHint] = useState<[number, number][] | null>(null);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const skillTiers = SKILL_SETS[cat.skillArchetype];
+
+  function showToast(text: string, kind: "player" | "enemy" | "system") {
+    const id = toastId.current++;
+    setToast({ id, text, kind });
+    setTimeout(() => setToast((t) => (t?.id === id ? null : t)), 1600);
+  }
 
   function spawnBursts(cells: { r: number; c: number; type: TileType }[]) {
     const fresh = cells.map((c) => ({ id: burstId.current++, r: c.r, c: c.c, type: c.type }));
     setBursts((b) => [...b, ...fresh]);
     fresh.forEach((b) => setTimeout(() => setBursts((cur) => cur.filter((x) => x.id !== b.id)), 550 / speed));
   }
-
   function spawnFloater(value: number, kind: "damage" | "heal" | "crit", target: "cat" | "enemy") {
     const id = floaterId.current++;
     setFloaters((f) => [...f, { id, value, kind, target }]);
     setTimeout(() => setFloaters((f) => f.filter((x) => x.id !== id)), 1100);
   }
-
   function spawnBullet(direction: "left" | "right", crit: boolean) {
     const id = bulletId.current++;
     setBullets((b) => [...b, { id, direction, crit }]);
     setTimeout(() => setBullets((b) => b.filter((x) => x.id !== id)), 350);
   }
-
   function spawnImpact() {
     const id = impactId.current++;
     setImpacts((i) => [...i, id]);
     setTimeout(() => setImpacts((i) => i.filter((x) => x !== id)), 500);
-  }
-
-  function pushLog(text: string, kind: BattleLogEntry["kind"]) {
-    setLog((l) => [...l.slice(-30), { id: logId.current++, text, kind }]);
   }
 
   function playCatPose(p: CatPose, duration = 500) {
@@ -119,43 +142,74 @@ export default function BattleScreen({
     if (p !== "dead") setTimeout(() => setEnemyPose((cur) => (cur === p ? "idle" : cur)), duration / speed);
   }
 
-  // ---- Time bank: ticks down continuously during the player's turn. Turns changing hands does
-  // NOT refill it — only matching energy tiles does. Hits 0 -> instant defeat. ----
+  // ---- Time banks: tick down only during that side's own turn; switching turns never refills
+  // them — only matching energy tiles does, capped at MAX_TIME. Hitting 0 is an instant loss. ----
   useEffect(() => {
     if (turn !== "player" || phase !== "fighting" || busy || paused) return;
-    const interval = setInterval(() => {
-      setTimeBank((t) => Math.max(0, t - 0.1));
-    }, 100);
+    const interval = setInterval(() => setTimeBank((t) => Math.max(0, t - 0.1)), 100);
+    return () => clearInterval(interval);
+  }, [turn, phase, busy, paused]);
+
+  useEffect(() => {
+    if (turn !== "enemy" || phase !== "fighting" || busy || paused) return;
+    const interval = setInterval(() => setEnemyTimeBank((t) => Math.max(0, t - 0.1)), 100);
     return () => clearInterval(interval);
   }, [turn, phase, busy, paused]);
 
   useEffect(() => {
     if (timeBank <= 0 && phase === "fighting") {
-      pushLog("Hết thời gian! Bạn thua trận.", "system");
+      showToast("Hết thời gian! Bạn thua trận.", "system");
       finishBattle(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeBank]);
 
-  // ---- AI turn trigger ----
+  useEffect(() => {
+    if (enemyTimeBank <= 0 && phase === "fighting") {
+      showToast("Địch hết thời gian! Bạn thắng!", "system");
+      finishBattle(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enemyTimeBank]);
+
+  // ---- AI turn: picks a move, plays the SAME visual swap animation the player sees ----
   useEffect(() => {
     if (turn !== "enemy" || phase !== "fighting" || busy || paused) return;
     const t = setTimeout(() => {
       const move = findBestMove(board, { attack: 3, mana: 1 });
       if (!move) return;
-      const test = cloneBoard(board);
-      swapCells(test, move[0], move[1], move[2], move[3]);
-      processCascade(test, "enemy");
+      externalSwapKey.current++;
+      setExternalSwap({ a: [move[0], move[1]], b: [move[2], move[3]], key: externalSwapKey.current });
+      setTimeout(() => {
+        const test = cloneBoard(board);
+        swapCells(test, move[0], move[1], move[2], move[3]);
+        processCascade(test, "enemy");
+      }, 200 / speed);
     }, 700 / speed);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turn, phase, busy, board]);
+  }, [turn, phase, busy, board, paused]);
+
+  // ---- Hint: if the player sits idle for 10s on their own turn, gently highlight a move ----
+  useEffect(() => {
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    setHint(null);
+    if (turn !== "player" || phase !== "fighting" || busy || paused) return;
+    hintTimer.current = setTimeout(() => {
+      const move = findBestMove(board);
+      if (move) setHint([[move[0], move[1]], [move[2], move[3]]]);
+    }, HINT_DELAY);
+    return () => {
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+    };
+  }, [turn, phase, busy, paused, board]);
 
   async function handleSwap(r1: number, c1: number, r2: number, c2: number) {
     if (busy || phase !== "fighting" || turn !== "player" || paused) return;
     const test = cloneBoard(board);
     swapCells(test, r1, c1, r2, c2);
     if (findMatches(test).length === 0) return;
+    setHint(null);
     await processCascade(test, "player");
   }
 
@@ -164,6 +218,7 @@ export default function BattleScreen({
     let working = startBoard;
     const totals: Record<TileType, number> = { attack: 0, defense: 0, mana: 0, heal: 0, gold: 0 };
     let maxSize = 0;
+    let skillPipsGained = 0;
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -171,6 +226,7 @@ export default function BattleScreen({
       const changed = Object.values(counts).some((v) => v > 0);
       if (!changed) break;
       (Object.keys(counts) as TileType[]).forEach((k) => (totals[k] += counts[k]));
+      if (counts.gold > 0) skillPipsGained += Math.floor(counts.gold / SKILL_TILES_PER_PIP) || (counts.gold >= 3 ? 1 : 0);
       maxSize = Math.max(maxSize, maxMatchSize);
       spawnBursts(clearedCells);
       working = nextBoard;
@@ -181,42 +237,40 @@ export default function BattleScreen({
     }
 
     setRound((r) => r + 1);
-    applyTurnEffects(totals, actingSide, maxSize);
+    applyTurnEffects(totals, actingSide, maxSize, skillPipsGained);
     await sleep(350 / speed);
     setBusy(false);
   }
 
-  function applyTurnEffects(totals: Record<TileType, number>, side: Side, maxSize: number) {
+  function applyTurnEffects(totals: Record<TileType, number>, side: Side, maxSize: number, skillPipsGained: number) {
     const isPlayer = side === "player";
     const atk = isPlayer ? cat.atk : enemy.atk;
-    const def = isPlayer ? 0 : cat.def; // defense reduces damage taken BY the player from the enemy
+    const def = isPlayer ? 0 : cat.def;
 
     let dmg = 0;
     let healAmt = 0;
     let shieldGain = 0;
     let mpGain = 0;
-    let scoreGain = 0;
 
     if (totals.attack > 0) dmg += Math.round(totals.attack * atk * 0.5);
     if (totals.defense > 0) shieldGain += totals.defense * 3;
     if (totals.heal > 0) healAmt += totals.heal * 6;
-    if (totals.gold > 0) scoreGain += totals.gold * 4;
 
-    // Energy tiles behave differently per side: the player's energy directly refills their
-    // battle-long time bank (turns changing hands does NOT refill it, only this does); the
-    // enemy still uses the classic charge-to-special mechanic.
     if (totals.mana > 0) {
-      if (isPlayer) {
-        const timeGain = totals.mana * TIME_PER_ENERGY_TILE;
-        setTimeBank((t) => Math.min(MAX_TIME, t + timeGain));
-        pushLog(`Nạp năng lượng: +${timeGain}s thời gian!`, "player");
-      } else {
-        mpGain += totals.mana * 10;
-      }
+      const timeGain = totals.mana * TIME_PER_ENERGY_TILE;
+      if (isPlayer) setTimeBank((t) => Math.min(MAX_TIME, t + timeGain));
+      else setEnemyTimeBank((t) => Math.min(MAX_TIME, t + timeGain));
+      showToast(`+${timeGain}s thời gian!`, isPlayer ? "player" : "enemy");
+    }
+
+    if (isPlayer && skillPipsGained > 0) {
+      setSkillPips((p) => Math.min(MAX_PIPS, p + skillPipsGained));
+      showToast(`+${skillPipsGained} điểm Skill!`, "player");
     }
 
     let skillFired = false;
     if (!isPlayer) {
+      if (totals.gold > 0) mpGain += totals.gold * 10;
       setEnemyMp((prev) => {
         let n = prev + mpGain;
         if (n >= ENEMY_MAX_MP) {
@@ -232,11 +286,8 @@ export default function BattleScreen({
       const finalDmg = Math.max(1, dmg - (isPlayer ? 0 : def));
       if (isPlayer) {
         playCatPose("shoot", skillFired ? 650 : 400);
-        // Cat shoots a real bullet across the field
         setTimeout(() => spawnBullet("right", skillFired), 120);
       } else {
-        // Zombies fight melee — their own Attack animation carries the motion, so no bullet;
-        // just a small impact burst timed to when the swipe lands.
         playEnemyPose("attack", skillFired ? 650 : 400);
         setTimeout(() => spawnImpact(), 260);
       }
@@ -255,71 +306,127 @@ export default function BattleScreen({
         },
         (isPlayer ? 120 : 180) + 260
       );
-
-      if (isPlayer) {
-        setEnemyShield((s) => {
-          const mitigated = Math.max(1, finalDmg - s);
-          setEnemyHp((h) => {
-            const nh = Math.max(0, h - mitigated);
-            pushLog(skillFired ? `Đạn năng lượng gây ${mitigated} sát thương!` : `Bạn bắn, gây ${mitigated} sát thương.`, "player");
-            if (nh <= 0) finishBattle(true);
-            return nh;
-          });
-          return Math.max(0, s - finalDmg);
-        });
-      } else {
-        setShield((s) => {
-          const mitigated = Math.max(1, finalDmg - s);
-          setHp((h) => {
-            const nh = Math.max(0, h - mitigated);
-            pushLog(
-              skillFired ? `${enemy.name} tung đòn năng lượng, gây ${mitigated} sát thương!` : `${enemy.name} bắn, gây ${mitigated} sát thương.`,
-              "enemy"
-            );
-            if (nh <= 0) finishBattle(false);
-            return nh;
-          });
-          return Math.max(0, s - finalDmg);
-        });
-      }
+      applyDamage(isPlayer, finalDmg, skillFired ? `${isPlayer ? "Bạn" : enemy.name} tung đòn năng lượng!` : null);
     }
 
     if (healAmt > 0) {
       if (isPlayer) {
-        setHp((h) => Math.min(cat.hp, h + healAmt));
+        setCatHpArr((arr) => arr.map((v, i) => (i === activeCatIdx ? Math.min(cat.hp, v + healAmt) : v)));
         spawnFloater(healAmt, "heal", "cat");
-        pushLog(`Bạn hồi ${healAmt} máu.`, "player");
       } else {
-        setEnemyHp((h) => Math.min(enemy.hp, h + healAmt));
+        setEnemyHpArr((arr) => arr.map((v, i) => (i === activeEnemyIdx ? Math.min(enemy.hp, v + healAmt) : v)));
         spawnFloater(healAmt, "heal", "enemy");
-        pushLog(`${enemy.name} hồi ${healAmt} máu.`, "enemy");
       }
+      showToast(`+${healAmt} máu`, isPlayer ? "player" : "enemy");
     }
     if (shieldGain > 0) {
-      if (isPlayer) {
-        setShield((s) => s + shieldGain);
-        pushLog(`Bạn dựng khiên +${shieldGain}.`, "player");
-      } else {
-        setEnemyShield((s) => s + shieldGain);
-        pushLog(`${enemy.name} dựng khiên +${shieldGain}.`, "enemy");
-      }
-    }
-    if (scoreGain > 0 && isPlayer) {
-      setScore((s) => s + scoreGain);
-      pushLog(`+${scoreGain} điểm.`, "player");
+      if (isPlayer) setShield((s) => s + shieldGain);
+      else setEnemyShield((s) => s + shieldGain);
+      showToast(`Khiên +${shieldGain}`, isPlayer ? "player" : "enemy");
     }
 
-    // ---- Bonus-turn accounting ----
     const bonus = maxSize >= 5 ? 2 : maxSize === 4 ? 1 : 0;
     setPendingCredits((prevCredits) => {
       const remaining = Math.max(0, prevCredits - 1) + bonus;
-      if (bonus > 0) pushLog(`Ghép ${maxSize} viên — ${side === "player" ? "bạn" : enemy.name} được +${bonus} lượt!`, "system");
-      if (remaining > 0) {
-        return remaining; // same side continues
-      }
+      if (bonus > 0) showToast(`Ghép ${maxSize} viên! +${bonus} lượt`, "system");
+      if (remaining > 0) return remaining;
       setTurn(side === "player" ? "enemy" : "player");
       return 1;
     });
+  }
+
+  function applyDamage(byPlayer: boolean, amount: number, note: string | null) {
+    if (byPlayer) {
+      setEnemyShield((s) => {
+        const mitigated = Math.max(1, amount - s);
+        setEnemyHpArr((arr) => {
+          const nh = Math.max(0, arr[activeEnemyIdx] - mitigated);
+          const next = arr.map((v, i) => (i === activeEnemyIdx ? nh : v));
+          if (note) showToast(note, "player");
+          if (nh <= 0) handleEnemyKO();
+          return next;
+        });
+        return Math.max(0, s - amount);
+      });
+    } else {
+      setShield((s) => {
+        const mitigated = Math.max(1, amount - s);
+        setCatHpArr((arr) => {
+          const nh = Math.max(0, arr[activeCatIdx] - mitigated);
+          const next = arr.map((v, i) => (i === activeCatIdx ? nh : v));
+          if (note) showToast(note, "enemy");
+          if (nh <= 0) handleCatKO();
+          return next;
+        });
+        return Math.max(0, s - amount);
+      });
+    }
+  }
+
+  function handleCatKO() {
+    if (activeCatIdx + 1 < catTeam.length) {
+      showToast(`${cat.name} gục ngã! Đưa tiếp viện vào!`, "system");
+      setTimeout(() => {
+        setActiveCatIdx((i) => i + 1);
+        setShield(0);
+        setSkillPips(0);
+        setBoard(createBoard());
+      }, 600);
+    } else {
+      finishBattle(false);
+    }
+  }
+  function handleEnemyKO() {
+    if (activeEnemyIdx + 1 < enemyTeam.length) {
+      showToast(`Hạ gục ${enemy.name}! Địch tiếp theo xuất hiện!`, "system");
+      setTimeout(() => {
+        setActiveEnemyIdx((i) => i + 1);
+        setEnemyShield(0);
+        setEnemyMp(0);
+        setBoard(createBoard());
+      }, 600);
+    } else {
+      finishBattle(true);
+    }
+  }
+
+  function useSkill(tier: SkillTier) {
+    if (skillPips < tier.cost || busy || phase !== "fighting" || turn !== "player" || paused) return;
+    setSkillPips((p) => p - tier.cost);
+    const arch = cat.skillArchetype;
+    let dmg = 0;
+    let heal = 0;
+    let sh = 0;
+    const mult = tier.tier === 1 ? 1 : tier.tier === 2 ? 1.8 : 3;
+    if (arch === "burst") dmg = Math.round(cat.atk * 1.4 * mult);
+    if (arch === "shield") {
+      sh = Math.round((12 + cat.def * 2) * mult);
+      dmg = Math.round(cat.atk * 0.4 * mult);
+    }
+    if (arch === "heal") heal = Math.round(18 * mult);
+    if (arch === "multi") {
+      dmg = Math.round(cat.atk * 0.9 * mult);
+      heal = Math.round(10 * mult);
+      if (tier.tier === 3) sh = 12;
+    }
+
+    playCatPose("shoot", 500);
+    showToast(`${cat.name} dùng ${tier.name}!`, "player");
+    if (dmg > 0) {
+      setTimeout(() => spawnBullet("right", tier.tier === 3), 100);
+      setTimeout(() => {
+        setEnemyHurt(true);
+        setEnemyHitTick((t) => t + 1);
+        setTimeout(() => setEnemyHurt(false), 400 / speed);
+        spawnFloater(dmg, tier.tier === 3 ? "crit" : "damage", "enemy");
+      }, 360);
+      applyDamage(true, dmg, null);
+    }
+    if (heal > 0) {
+      setCatHpArr((arr) => arr.map((v, i) => (i === activeCatIdx ? Math.min(cat.hp, v + heal) : v)));
+      spawnFloater(heal, "heal", "cat");
+    }
+    if (sh > 0) setShield((s) => s + sh);
   }
 
   function finishBattle(won: boolean) {
@@ -342,11 +449,7 @@ export default function BattleScreen({
         <span className="shrink-0 rounded-full border border-amber-600 bg-slate-900 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300">
           Hiệp {round}
         </span>
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${
-            turn === "player" ? "bg-sky-600 text-white" : "bg-red-600 text-white"
-          }`}
-        >
+        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${turn === "player" ? "bg-sky-600 text-white" : "bg-red-600 text-white"}`}>
           {turn === "player" ? "Lượt của bạn" : "Lượt đối thủ"}
         </span>
         <button
@@ -356,9 +459,29 @@ export default function BattleScreen({
           x{speed}
         </button>
         <button onClick={() => setPaused(true)} className="shrink-0 overflow-hidden rounded-full">
-          <Image src="/ui/settings_btn.png" alt="Tạm dừng" width={26} height={26} />
+          <Image src="/ui/icon_settings.png" alt="Tạm dừng" width={26} height={26} />
         </button>
       </div>
+
+      {/* Team rosters */}
+      {(catTeam.length > 1 || enemyTeam.length > 1) && (
+        <div className="flex items-center justify-between px-1">
+          <div className="flex gap-1">
+            {catTeam.map((c, i) => (
+              <div key={c.id} className={`h-6 w-6 overflow-hidden rounded-full border-2 ${i === activeCatIdx ? "border-amber-400" : "border-slate-700 opacity-50"} ${catHpArr[i] <= 0 ? "grayscale opacity-30" : ""}`}>
+                <AnimatedSprite src={c.sprite.idle.src} frames={c.sprite.idle.frames} fps={6} className="h-full w-full scale-150" />
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-1">
+            {enemyTeam.map((e, i) => (
+              <div key={e.id} className={`h-6 w-6 overflow-hidden rounded-full border-2 ${i === activeEnemyIdx ? "border-red-400" : "border-slate-700 opacity-50"} ${enemyHpArr[i] <= 0 ? "grayscale opacity-30" : ""}`}>
+                <AnimatedSprite src={e.sprite.idle.src} frames={e.sprite.idle.frames} fps={6} className="h-full w-full scale-150" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-xl border border-amber-700/50 bg-slate-900/80 p-2">
@@ -379,47 +502,59 @@ export default function BattleScreen({
                 style={{ width: `${Math.min(100, (timeBank / MAX_TIME) * 100)}%` }}
               />
             </div>
-            <span className={`shrink-0 text-[10px] font-semibold tabular-nums ${timeBank <= 20 ? "text-red-400" : "text-amber-200"}`}>
-              {formatTime(timeBank)}
-            </span>
+            <span className={`shrink-0 text-[10px] font-semibold tabular-nums ${timeBank <= 20 ? "text-red-400" : "text-amber-200"}`}>{formatTime(timeBank)}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="shrink-0 text-[9px] text-purple-300">Skill</span>
+            {[1, 2, 3].map((p) => (
+              <span key={p} className={`h-2.5 flex-1 rounded-full ${skillPips >= p ? "skill-pip-fill bg-purple-400" : "bg-slate-800"}`} />
+            ))}
           </div>
         </div>
-        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-red-700/50 bg-slate-900/80 p-2">
-          <div className="min-w-0 flex-1 text-right">
-            <p className="truncate text-[11px] font-semibold text-red-200">{enemy.name}</p>
-            <Bar color="bg-red-500" value={enemyHp} max={enemy.hp} align="right" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-xl border border-red-700/50 bg-slate-900/80 p-2">
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1 text-right">
+              <p className="truncate text-[11px] font-semibold text-red-200">{enemy.name}</p>
+              <Bar color="bg-red-500" value={enemyHp} max={enemy.hp} align="right" />
+            </div>
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-red-500 bg-slate-800">
+              <AnimatedSprite src={enemy.sprite.idle.src} frames={enemy.sprite.idle.frames} fps={10} className="h-full w-full scale-150" />
+            </div>
           </div>
-          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-red-500 bg-slate-800">
-            <AnimatedSprite src={enemy.sprite.idle.src} frames={enemy.sprite.idle.frames} fps={10} className="h-full w-full scale-150" />
+          <div className="flex items-center gap-1.5">
+            <span
+              className={`shrink-0 text-[10px] font-semibold tabular-nums ${enemyTimeBank <= 20 ? "text-red-400" : "text-amber-200"}`}
+            >
+              {formatTime(enemyTimeBank)}
+            </span>
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+              <div
+                className={`h-full transition-all duration-150 ${enemyTimeBank <= 20 ? "bg-red-500" : "bg-amber-400"}`}
+                style={{ width: `${Math.min(100, (enemyTimeBank / MAX_TIME) * 100)}%`, marginLeft: "auto" }}
+              />
+            </div>
+            <span className="shrink-0 text-[10px] text-amber-300">⏱</span>
           </div>
         </div>
       </div>
 
       <div
         className="relative flex items-center justify-between gap-2 overflow-hidden rounded-xl border border-amber-700/30 bg-slate-950/40 bg-cover bg-center p-2"
-        style={{ backgroundImage: "url(/sprites/battle_bg.jpg)" }}
+        style={{ backgroundImage: `url(${map.field})` }}
       >
         <div className="absolute inset-0 bg-slate-950/25" />
+        {toast && <Toast key={toast.id} text={toast.text} kind={toast.kind} />}
         <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible">
           <div className="h-full w-full overflow-hidden">
             <div key={catHitTick} className={`h-full w-full ${catHurt ? "anim-hurt" : catPose === "shoot" ? "anim-attack-right" : ""}`}>
               <div className={`h-full w-full ${catDefeated ? "anim-dead" : ""}`}>
-                <AnimatedSprite
-                  key={catPlayKey}
-                  src={catSprite.src}
-                  frames={catSprite.frames}
-                  fps={catPose === "idle" ? 8 : 14}
-                  loop={catPose === "idle" && !catDefeated}
-                  className="h-full w-full"
-                />
+                <AnimatedSprite key={catPlayKey} src={catSprite.src} frames={catSprite.frames} fps={catPose === "idle" ? 8 : 14} loop={catPose === "idle" && !catDefeated} className="h-full w-full" />
               </div>
             </div>
           </div>
-          {floaters
-            .filter((f) => f.target === "cat")
-            .map((f) => (
-              <FloatingNumber key={f.id} value={f.value} kind={f.kind} style={{ left: "50%", top: "0%", transform: "translateX(-50%)" }} />
-            ))}
+          {floaters.filter((f) => f.target === "cat").map((f) => (
+            <FloatingNumber key={f.id} value={f.value} kind={f.kind} style={{ left: "50%", top: "0%", transform: "translateX(-50%)" }} />
+          ))}
         </div>
         {shield > 0 && <span className="relative z-10 shrink-0 text-xs text-sky-300">🛡 +{shield}</span>}
         {enemyShield > 0 && <span className="relative z-10 shrink-0 text-xs text-red-300">🛡 +{enemyShield}</span>}
@@ -427,36 +562,19 @@ export default function BattleScreen({
           <div className="h-full w-full overflow-hidden">
             <div key={enemyHitTick} className={`h-full w-full ${enemyHurt ? "anim-hurt" : enemyPose === "attack" ? "anim-attack-left" : ""}`}>
               <div className={`h-full w-full ${enemyDefeated ? "anim-dead" : ""}`}>
-                <AnimatedSprite
-                  key={enemyPlayKey}
-                  src={enemySprite.src}
-                  frames={enemySprite.frames}
-                  fps={enemyPose === "idle" ? 8 : 14}
-                  loop={enemyPose === "idle" && !enemyDefeated}
-                  className="h-full w-full"
-                />
+                <AnimatedSprite key={enemyPlayKey} src={enemySprite.src} frames={enemySprite.frames} fps={enemyPose === "idle" ? 8 : 14} loop={enemyPose === "idle" && !enemyDefeated} className="h-full w-full" />
               </div>
             </div>
           </div>
-          {floaters
-            .filter((f) => f.target === "enemy")
-            .map((f) => (
-              <FloatingNumber key={f.id} value={f.value} kind={f.kind} style={{ left: "50%", top: "0%", transform: "translateX(-50%)" }} />
-            ))}
+          {floaters.filter((f) => f.target === "enemy").map((f) => (
+            <FloatingNumber key={f.id} value={f.value} kind={f.kind} style={{ left: "50%", top: "0%", transform: "translateX(-50%)" }} />
+          ))}
         </div>
         {bullets.map((b) => (
           <Bullet key={b.id} direction={b.direction} crit={b.crit} />
         ))}
         {impacts.map((id) => (
           <ImpactHit key={id} />
-        ))}
-      </div>
-
-      <div className="max-h-20 space-y-0.5 overflow-y-auto rounded-lg bg-slate-950/60 p-2 text-[11px]">
-        {log.map((l) => (
-          <div key={l.id} className={l.kind === "player" ? "text-sky-300" : l.kind === "enemy" ? "text-red-300" : "text-amber-300"}>
-            {l.text}
-          </div>
         ))}
       </div>
 
@@ -467,6 +585,8 @@ export default function BattleScreen({
         bursts={bursts}
         fallingCells={fallingCells}
         updateTick={updateTick}
+        externalSwap={externalSwap}
+        hint={hint}
       />
 
       <div className="grid grid-cols-4 gap-1.5">
@@ -477,6 +597,26 @@ export default function BattleScreen({
             <p className="truncate text-[8px] text-slate-400">{s.desc}</p>
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-3 gap-1.5">
+        {skillTiers.map((tier) => {
+          const usable = skillPips >= tier.cost && turn === "player" && phase === "fighting" && !busy && !paused;
+          return (
+            <button
+              key={tier.tier}
+              onClick={() => useSkill(tier)}
+              disabled={!usable}
+              className={`rounded-lg border p-1.5 text-center transition ${
+                usable ? "border-purple-500 bg-purple-900/40 hover:bg-purple-800/50" : "border-slate-700 bg-slate-900/40 opacity-50"
+              }`}
+            >
+              <p className="truncate text-[10px] font-bold text-purple-200">{tier.name}</p>
+              <p className="truncate text-[8px] text-slate-400">{tier.desc}</p>
+              <p className="mt-0.5 text-[9px] text-purple-300">{tier.cost} pip</p>
+            </button>
+          );
+        })}
       </div>
 
       {phase !== "fighting" && (
@@ -493,11 +633,7 @@ export default function BattleScreen({
             <button
               onClick={() => onResult(phase === "victory")}
               className="relative flex h-14 w-48 items-center justify-center"
-              style={{
-                backgroundImage: "url(/ui/btn_orange.png)",
-                backgroundSize: "100% 100%",
-                backgroundRepeat: "no-repeat",
-              }}
+              style={{ backgroundImage: "url(/ui/btn_orange.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}
             >
               <span className="text-base font-bold text-white drop-shadow">Tiếp tục</span>
             </button>
@@ -508,24 +644,13 @@ export default function BattleScreen({
       {paused && phase === "fighting" && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
           <div className="flex w-full max-w-xs flex-col items-center gap-5">
-            <div
-              className="flex h-24 w-full items-center justify-center"
-              style={{ backgroundImage: "url(/ui/bg_paused.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}
-            >
+            <div className="flex h-24 w-full items-center justify-center" style={{ backgroundImage: "url(/ui/bg_paused.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}>
               <span className="text-2xl font-bold text-amber-100">Tạm dừng</span>
             </div>
-            <button
-              onClick={() => setPaused(false)}
-              className="relative flex h-14 w-48 items-center justify-center"
-              style={{ backgroundImage: "url(/ui/btn_green.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}
-            >
+            <button onClick={() => setPaused(false)} className="relative flex h-14 w-48 items-center justify-center" style={{ backgroundImage: "url(/ui/btn_green.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}>
               <span className="text-base font-bold text-white drop-shadow">Tiếp tục</span>
             </button>
-            <button
-              onClick={onExit}
-              className="relative flex h-14 w-48 items-center justify-center"
-              style={{ backgroundImage: "url(/ui/btn_orange.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}
-            >
+            <button onClick={onExit} className="relative flex h-14 w-48 items-center justify-center" style={{ backgroundImage: "url(/ui/btn_orange.png)", backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" }}>
               <span className="text-base font-bold text-white drop-shadow">Thoát trận</span>
             </button>
           </div>

@@ -5,16 +5,25 @@ export function ImpactBurst({ type, style }: { type: TileType; style?: React.CSS
   const c = TILE_COLORS[type];
   return (
     <div className="pointer-events-none absolute" style={style}>
+      {/* real explosion sprite for a punchier, more detailed hit */}
+      <div
+        className="fx-explosion-sheet absolute left-1/2 top-1/2 h-[220%] w-[220%] -translate-x-1/2 -translate-y-1/2 mix-blend-screen"
+        style={{
+          backgroundImage: "url(/sprites/explosion_full.png)",
+          backgroundSize: "2000% 100%",
+          backgroundRepeat: "no-repeat",
+          filter: `drop-shadow(0 0 6px ${c.base})`,
+        }}
+      />
       <svg viewBox="0 0 60 60" className="fx-burst-flash h-full w-full" style={{ color: c.base }}>
-        <path
-          d="M30 2 L34 24 L58 30 L34 36 L30 58 L26 36 L2 30 L26 24 Z"
-          fill="currentColor"
-          opacity="0.95"
-        />
-        <circle cx="30" cy="30" r="7" fill="#fff" opacity="0.9" />
+        <path d="M30 2 L34 24 L58 30 L34 36 L30 58 L26 36 L2 30 L26 24 Z" fill="currentColor" opacity="0.9" />
+        <circle cx="30" cy="30" r="6" fill="#fff" opacity="0.95" />
       </svg>
       <svg viewBox="0 0 60 60" className="fx-burst-ring absolute inset-0 h-full w-full" style={{ color: c.base }}>
-        <circle cx="30" cy="30" r="16" fill="none" stroke="currentColor" strokeWidth="3" opacity="0.8" />
+        <circle cx="30" cy="30" r="16" fill="none" stroke="currentColor" strokeWidth="3" opacity="0.85" />
+      </svg>
+      <svg viewBox="0 0 60 60" className="fx-burst-ring2 absolute inset-0 h-full w-full" style={{ color: c.light }}>
+        <circle cx="30" cy="30" r="10" fill="none" stroke="currentColor" strokeWidth="2" opacity="0.9" />
       </svg>
     </div>
   );
@@ -52,6 +61,15 @@ export function Bullet({ direction, crit }: { direction: "right" | "left"; crit?
         className={`h-2 rounded-full ${crit ? "w-8 bg-amber-400 shadow-[0_0_10px_3px_rgba(251,191,36,0.8)]" : "w-5 bg-yellow-300 shadow-[0_0_6px_2px_rgba(253,224,71,0.7)]"}`}
         style={{ transform: direction === "left" ? "scaleX(-1)" : undefined }}
       />
+    </div>
+  );
+}
+
+export function Toast({ text, kind }: { text: string; kind: "player" | "enemy" | "system" }) {
+  const color = kind === "player" ? "text-sky-200 border-sky-500/60" : kind === "enemy" ? "text-red-200 border-red-500/60" : "text-amber-200 border-amber-500/60";
+  return (
+    <div className={`fx-toast pointer-events-none absolute left-1/2 top-1 z-30 -translate-x-1/2 rounded-full border bg-slate-950/90 px-3 py-1 text-center text-[11px] font-semibold shadow-lg ${color}`}>
+      {text}
     </div>
   );
 }

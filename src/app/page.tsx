@@ -1,42 +1,157 @@
 "use client";
 
-import { useState } from "react";
-import { CATS, ENEMIES } from "@/lib/gameData";
-import { CatDefinition, EnemyDefinition } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { CATS, ENEMIES, UPGRADES } from "@/lib/gameData";
+import { MAPS } from "@/lib/maps";
+import { CatDefinition, EnemyDefinition, PlayerProfile } from "@/lib/types";
+import { loadProfile, saveProfile } from "@/lib/profile";
 import BattleScreen from "@/components/BattleScreen";
 import AnimatedSprite from "@/components/AnimatedSprite";
+import MainMenu from "@/components/MainMenu";
+import LoginScreen from "@/components/LoginScreen";
+import SettingsScreen from "@/components/SettingsScreen";
+import InfoScreen from "@/components/InfoScreen";
+import MultiplayerScreen from "@/components/MultiplayerScreen";
+import ShopScreen from "@/components/ShopScreen";
 
-type View = "select" | "enemySelect" | "battle" | "result";
+type View =
+  | "menu" | "login" | "settings" | "info" | "multiplayer" | "shop"
+  | "teamSize" | "catPick" | "mapPick" | "battle" | "result" | "stub";
 
 export default function Home() {
-  const [view, setView] = useState<View>("select");
-  const [cat, setCat] = useState<CatDefinition | null>(null);
-  const [enemy, setEnemy] = useState<EnemyDefinition | null>(null);
+  const [ready, setReady] = useState(false);
+  const [profile, setProfile] = useState<PlayerProfile | null>(null);
+  const [view, setView] = useState<View>("menu");
+  const [stubLabel, setStubLabel] = useState("");
+
+  const [teamSize, setTeamSize] = useState(1);
+  const [pickedCats, setPickedCats] = useState<CatDefinition[]>([]);
+  const [map, setMap] = useState(MAPS[0]);
+  const [enemyTeam, setEnemyTeam] = useState<EnemyDefinition[]>([]);
   const [lastResult, setLastResult] = useState<boolean | null>(null);
 
-  if (view === "select") {
+  useEffect(() => {
+    setProfile(loadProfile());
+    setReady(true);
+  }, []);
+
+  function updateProfile(p: PlayerProfile) {
+    setProfile(p);
+    saveProfile(p);
+  }
+
+  function effectiveCat(c: CatDefinition): CatDefinition {
+    if (!profile) return c;
+    let atk = c.atk, def = c.def, hp = c.hp;
+    for (const u of UPGRADES) {
+      const lvl = profile.upgradeLevels[u.id] ?? 0;
+      if (lvl === 0) continue;
+      if (u.stat === "atk") atk += u.amount * lvl;
+      if (u.stat === "def") def += u.amount * lvl;
+      if (u.stat === "hp") hp += u.amount * lvl;
+    }
+    return { ...c, atk, def, hp };
+  }
+
+  if (!ready || !profile) return null;
+
+  if (view === "menu") {
     return (
-      <main className="flex min-h-dvh flex-col items-center gap-5 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 pt-10 text-white">
-        <h1 className="text-center text-2xl font-bold text-amber-300">🐱 Cat Defender: Ghép 3 Bắn Súng</h1>
-        <p className="max-w-sm text-center text-sm text-slate-300">
-          Chọn 1 trong {CATS.length} boss mèo, ghép 3 biểu tượng để bắn, phòng thủ, hồi máu và nạp năng lượng
-          kéo dài đồng hồ thời gian. Đấu solo với zombie do máy điều khiển, đánh theo lượt trên cùng 1 bàn cờ.
+      <MainMenu
+        profile={profile}
+        onNavigate={(dest) => {
+          if (dest === "solo") setView("teamSize");
+          else if (dest === "friends" || dest === "download") {
+            setStubLabel(dest === "friends" ? "Bạn Bè" : "Tải Về");
+            setView("stub");
+          } else setView(dest as View);
+        }}
+      />
+    );
+  }
+
+  if (view === "login") {
+    return (
+      <LoginScreen
+        profile={profile}
+        onBack={() => setView("menu")}
+        onLogin={(name) => {
+          updateProfile({ ...profile, displayName: name, loggedIn: true });
+          setView("menu");
+        }}
+      />
+    );
+  }
+
+  if (view === "settings") {
+    return <SettingsScreen profile={profile} onBack={() => setView("menu")} onSave={(p) => { updateProfile(p); setView("menu"); }} />;
+  }
+
+  if (view === "info") {
+    return <InfoScreen onBack={() => setView("menu")} />;
+  }
+
+  if (view === "multiplayer") {
+    return <MultiplayerScreen onBack={() => setView("menu")} onPlayVsBots={() => setView("teamSize")} />;
+  }
+
+  if (view === "shop") {
+    return (
+      <ShopScreen
+        profile={profile}
+        onBack={() => setView("menu")}
+        onBuy={(id) => {
+          const u = UPGRADES.find((x) => x.id === id);
+          if (!u) return;
+          const level = profile.upgradeLevels[id] ?? 0;
+          const cost = u.baseCost * (level + 1);
+          if (profile.gold < cost) return;
+          updateProfile({
+            ...profile,
+            gold: profile.gold - cost,
+            upgradeLevels: { ...profile.upgradeLevels, [id]: level + 1 },
+          });
+        }}
+      />
+    );
+  }
+
+  if (view === "stub") {
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 text-white">
+        <button onClick={() => setView("menu")} className="absolute left-6 top-8 text-xs text-amber-300 underline">
+          ← Quay lại
+        </button>
+        <p className="text-xl font-bold text-amber-300">{stubLabel}</p>
+        <p className="max-w-xs text-center text-sm text-slate-400">
+          {stubLabel === "Bạn Bè"
+            ? "Xem bạn bè đang online cần kết nối máy chủ thật — chưa khả dụng ở bản demo này."
+            : "Icon tải về dùng khi đăng ở store thật (Google Play/App Store) — chưa áp dụng cho bản web demo này."}
         </p>
-        <div className="grid grid-cols-3 gap-2.5 pb-6">
-          {CATS.map((c) => (
+      </main>
+    );
+  }
+
+  if (view === "teamSize") {
+    return (
+      <main className="flex min-h-dvh flex-col items-center gap-6 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 pt-12 text-white">
+        <button onClick={() => setView("menu")} className="self-start text-xs text-amber-300 underline">
+          ← Menu chính
+        </button>
+        <h1 className="text-xl font-bold text-amber-300">Chọn Thể Thức</h1>
+        <div className="flex w-full max-w-xs flex-col gap-3">
+          {[1, 2, 3].map((n) => (
             <button
-              key={c.id}
+              key={n}
               onClick={() => {
-                setCat(c);
-                setView("enemySelect");
+                setTeamSize(n);
+                setPickedCats([]);
+                setView("catPick");
               }}
-              className="flex flex-col items-center gap-1 overflow-hidden rounded-xl border border-amber-600 bg-slate-900 p-2 hover:bg-slate-800"
+              className="rounded-xl border border-amber-600 bg-slate-900 py-4 text-center font-bold text-amber-200 hover:bg-slate-800"
             >
-              <AnimatedSprite src={c.sprite.idle.src} frames={c.sprite.idle.frames} fps={8} className="h-16 w-16 bg-contain bg-center bg-no-repeat" />
-              <span className="text-center text-[11px] font-semibold text-amber-200 leading-tight">{c.name}</span>
-              <span className="text-center text-[9px] leading-tight text-slate-500">
-                HP {c.hp} · ATK {c.atk}
-              </span>
+              {n === 1 ? "1 vs 1" : n === 2 ? "2 vs 2" : "3 vs 3"}
+              <p className="mt-1 text-[11px] font-normal text-slate-400">Bạn + {n - 1} bot đội bạn, đấu theo lượt</p>
             </button>
           ))}
         </div>
@@ -44,33 +159,70 @@ export default function Home() {
     );
   }
 
-  if (view === "enemySelect" && cat) {
+  if (view === "catPick") {
     return (
       <main className="flex min-h-dvh flex-col items-center gap-4 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 pt-10 text-white">
-        <button onClick={() => setView("select")} className="self-start text-xs text-amber-300 underline">
+        <button onClick={() => setView("teamSize")} className="self-start text-xs text-amber-300 underline">
+          ← Đổi thể thức
+        </button>
+        <h2 className="text-center text-lg font-bold text-amber-300">
+          Chọn {teamSize} mèo ({pickedCats.length}/{teamSize})
+        </h2>
+        <div className="grid grid-cols-3 gap-2.5 pb-4">
+          {CATS.map((c) => {
+            const picked = pickedCats.some((p) => p.id === c.id);
+            const ec = effectiveCat(c);
+            return (
+              <button
+                key={c.id}
+                onClick={() => {
+                  if (picked) setPickedCats((arr) => arr.filter((p) => p.id !== c.id));
+                  else if (pickedCats.length < teamSize) setPickedCats((arr) => [...arr, c]);
+                }}
+                className={`flex flex-col items-center gap-1 overflow-hidden rounded-xl border p-2 ${picked ? "border-amber-400 bg-amber-900/30" : "border-slate-700 bg-slate-900"}`}
+              >
+                <AnimatedSprite src={c.sprite.idle.src} frames={c.sprite.idle.frames} fps={8} className="h-16 w-16 bg-contain bg-center bg-no-repeat" />
+                <span className="text-center text-[11px] font-semibold leading-tight text-amber-200">{c.name}</span>
+                <span className="text-[9px] text-slate-500">HP {ec.hp} · ATK {ec.atk}</span>
+              </button>
+            );
+          })}
+        </div>
+        {pickedCats.length === teamSize && (
+          <button
+            onClick={() => {
+              const shuffled = [...ENEMIES].sort(() => Math.random() - 0.5).slice(0, teamSize);
+              setEnemyTeam(shuffled);
+              setView("mapPick");
+            }}
+            className="fixed bottom-6 rounded-lg bg-amber-500 px-6 py-3 font-bold text-slate-900 shadow-xl"
+          >
+            Tiếp tục →
+          </button>
+        )}
+      </main>
+    );
+  }
+
+  if (view === "mapPick") {
+    return (
+      <main className="flex min-h-dvh flex-col items-center gap-4 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 pt-10 text-white">
+        <button onClick={() => setView("catPick")} className="self-start text-xs text-amber-300 underline">
           ← Đổi mèo
         </button>
-        <h2 className="text-center text-xl font-bold text-amber-300">Chọn đối thủ</h2>
-        <p className="-mt-2 text-center text-[11px] text-slate-400">{ENEMIES.length} zombie — càng xuống dưới càng khó</p>
-        <div className="flex w-full max-w-xs flex-col gap-2.5 pb-6">
-          {ENEMIES.map((e) => (
+        <h2 className="text-lg font-bold text-amber-300">Chọn Bản Đồ</h2>
+        <div className="flex w-full max-w-sm flex-col gap-3 pb-4">
+          {MAPS.map((m) => (
             <button
-              key={e.id}
+              key={m.id}
               onClick={() => {
-                setEnemy(e);
+                setMap(m);
                 setView("battle");
               }}
-              className="flex items-center gap-3 overflow-hidden rounded-xl border border-red-700 bg-slate-900 p-2.5 hover:bg-slate-800"
+              className="overflow-hidden rounded-xl border border-amber-600 bg-slate-900 hover:bg-slate-800"
             >
-              <div className="h-14 w-14 shrink-0 overflow-hidden">
-                <AnimatedSprite src={e.sprite.idle.src} frames={e.sprite.idle.frames} fps={8} className="h-full w-full bg-contain bg-center bg-no-repeat" />
-              </div>
-              <div className="text-left">
-                <p className="text-sm font-semibold text-red-200">{e.name}</p>
-                <p className="text-[11px] text-slate-400">
-                  Lv.{e.level} · HP {e.hp} · ATK {e.atk}
-                </p>
-              </div>
+              <img src={m.thumb} alt={m.name} className="h-28 w-full object-cover" />
+              <p className="p-2 text-sm font-semibold text-amber-200">{m.name}</p>
             </button>
           ))}
         </div>
@@ -78,14 +230,17 @@ export default function Home() {
     );
   }
 
-  if (view === "battle" && cat && enemy) {
+  if (view === "battle") {
+    const finalCatTeam = pickedCats.map(effectiveCat);
     return (
       <main className="min-h-dvh bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white">
         <BattleScreen
-          cat={cat}
-          enemy={enemy}
-          onExit={() => setView("enemySelect")}
+          catTeam={finalCatTeam}
+          enemyTeam={enemyTeam}
+          map={map}
+          onExit={() => setView("menu")}
           onResult={(won) => {
+            if (won) updateProfile({ ...profile, gold: profile.gold + 30 + teamSize * 10 });
             setLastResult(won);
             setView("result");
           }}
@@ -99,18 +254,13 @@ export default function Home() {
       <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 text-white">
         <p className="text-3xl">{lastResult ? "🎉" : "💀"}</p>
         <h2 className="text-xl font-bold text-amber-300">{lastResult ? "Chiến thắng!" : "Thất bại"}</h2>
+        {lastResult && <p className="text-sm text-amber-100">+{30 + teamSize * 10} vàng</p>}
         <div className="flex gap-3">
-          <button
-            onClick={() => setView("enemySelect")}
-            className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-slate-900"
-          >
+          <button onClick={() => setView("teamSize")} className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-slate-900">
             Đấu tiếp
           </button>
-          <button
-            onClick={() => setView("select")}
-            className="rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-200"
-          >
-            Đổi mèo
+          <button onClick={() => setView("menu")} className="rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-200">
+            Menu chính
           </button>
         </div>
       </main>
