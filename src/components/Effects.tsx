@@ -48,12 +48,12 @@ export function ImpactHit() {
 export function Bullet({ direction, crit }: { direction: "right" | "left"; crit?: boolean }) {
   return (
     <div
-      className={`pointer-events-none absolute top-1/2 z-20 -translate-y-1/2 ${direction === "right" ? "fx-bullet-right" : "fx-bullet-left"}`}
+      className={`pointer-events-none absolute top-[60%] z-20 -translate-y-1/2 ${direction === "right" ? "fx-bullet-right" : "fx-bullet-left"}`}
       style={
         {
-          "--bullet-start": "8%",
+          "--bullet-start": "20%",
           "--bullet-end": "88%",
-          [direction === "right" ? "left" : "right"]: "8%",
+          [direction === "right" ? "left" : "right"]: "20%",
         } as React.CSSProperties
       }
     >

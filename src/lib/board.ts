@@ -182,3 +182,38 @@ export function resolveMatches(board: Board): {
 
   return { board: newBoard, counts, clearedCells, maxMatchSize, newCells };
 }
+
+// ---- Skill helper mutations: these bypass the normal match/gravity flow since they represent
+// an instant "explosion" or "drain" effect rather than a player-made swap. Cleared cells are
+// simply replaced in place with fresh random tiles (no falling animation needed for these).
+
+export function clearRandomArea(board: Board, size: number): { cleared: { r: number; c: number; type: TileType }[]; board: Board } {
+  const boardSize = board.length;
+  const s = Math.min(size, boardSize);
+  const r0 = Math.floor(Math.random() * (boardSize - s + 1));
+  const c0 = Math.floor(Math.random() * (boardSize - s + 1));
+  const cleared: { r: number; c: number; type: TileType }[] = [];
+  const next = cloneBoard(board);
+  for (let r = r0; r < r0 + s; r++) {
+    for (let c = c0; c < c0 + s; c++) {
+      cleared.push({ r, c, type: board[r][c] });
+      next[r][c] = randomTile();
+    }
+  }
+  return { cleared, board: next };
+}
+
+export function absorbAllOfType(board: Board, type: TileType): { cleared: { r: number; c: number; type: TileType }[]; board: Board } {
+  const boardSize = board.length;
+  const cleared: { r: number; c: number; type: TileType }[] = [];
+  const next = cloneBoard(board);
+  for (let r = 0; r < boardSize; r++) {
+    for (let c = 0; c < boardSize; c++) {
+      if (board[r][c] === type) {
+        cleared.push({ r, c, type });
+        next[r][c] = randomTile();
+      }
+    }
+  }
+  return { cleared, board: next };
+}

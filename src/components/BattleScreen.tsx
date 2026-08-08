@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Board, createBoard, cloneBoard, swapCells, findMatches, resolveMatches, findBestMove } from "@/lib/board";
+import { Board, createBoard, cloneBoard, swapCells, findMatches, resolveMatches, findBestMove, clearRandomArea, absorbAllOfType } from "@/lib/board";
 import { CatDefinition, EnemyDefinition, TileType } from "@/lib/types";
-import { SKILL_SETS, SkillTier } from "@/lib/skills";
+import { SKILLS_BY_CAT, SkillTier } from "@/lib/skills";
 import { BattleMap } from "@/lib/maps";
 import Match3Grid, { Burst, ExternalSwapSignal } from "./Match3Grid";
 import { FloatingNumber, Bullet, ImpactHit, Toast } from "./Effects";
@@ -60,6 +60,12 @@ export default function BattleScreen({
   const [enemyShield, setEnemyShield] = useState(0);
   const [enemyMp, setEnemyMp] = useState(0);
   const [skillPips, setSkillPips] = useState(0);
+  const [fullBlockHits, setFullBlockHits] = useState(0);
+  const [reflectStatus, setReflectStatus] = useState<{ turnsLeft: number; mult: number } | null>(null);
+  const [poisonStatus, setPoisonStatus] = useState<{ percent: number; turnsLeft: number } | null>(null);
+  const [buffDamageMult, setBuffDamageMult] = useState<{ mult: number; turnsLeft: number } | null>(null);
+  const [buffNextAttackMult, setBuffNextAttackMult] = useState<number | null>(null);
+  const [boxingCatTurns, setBoxingCatTurns] = useState(0);
   const [score, setScore] = useState(0);
   const [paused, setPaused] = useState(false);
 
@@ -102,7 +108,7 @@ export default function BattleScreen({
   const [hint, setHint] = useState<[number, number][] | null>(null);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const skillTiers = SKILL_SETS[cat.skillArchetype];
+  const skillTiers = SKILLS_BY_CAT[cat.id];
 
   function showToast(text: string, kind: "player" | "enemy" | "system") {
     const id = toastId.current++;
@@ -171,6 +177,22 @@ export default function BattleScreen({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enemyTimeBank]);
+
+  // ---- Poison ticks once at the start of the enemy's turn, before they act ----
+  useEffect(() => {
+    if (turn !== "enemy" || phase !== "fighting") return;
+    setPoisonStatus((p) => {
+      if (!p || p.turnsLeft <= 0) return null;
+      const dmg = Math.max(1, Math.round((enemy.hp * p.percent) / 100));
+      setTimeout(() => {
+        spawnFloater(dmg, "damage", "enemy");
+        applyDamage(true, dmg, "Trúng độc!");
+      }, 150);
+      const left = p.turnsLeft - 1;
+      return left > 0 ? { ...p, turnsLeft: left } : null;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turn]);
 
   // ---- AI turn: picks a move, plays the SAME visual swap animation the player sees ----
   useEffect(() => {
@@ -252,7 +274,20 @@ export default function BattleScreen({
     let shieldGain = 0;
     let mpGain = 0;
 
-    if (totals.attack > 0) dmg += Math.round(totals.attack * atk * 0.5);
+    if (totals.attack > 0) {
+      let base = Math.round(totals.attack * atk * 0.5);
+      if (isPlayer) {
+        if (buffNextAttackMult) {
+          base *= buffNextAttackMult;
+          setBuffNextAttackMult(null);
+          showToast("Đòn buff x" + buffNextAttackMult + "!", "player");
+        } else if (buffDamageMult) {
+          base = Math.round(base * buffDamageMult.mult);
+        }
+        if (boxingCatTurns > 0) base += Math.round(cat.atk * 0.5);
+      }
+      dmg += base;
+    }
     if (totals.defense > 0) shieldGain += totals.defense * 3;
     if (totals.heal > 0) healAmt += totals.heal * 6;
 
@@ -330,6 +365,10 @@ export default function BattleScreen({
       const remaining = Math.max(0, prevCredits - 1) + bonus;
       if (bonus > 0) showToast(`Ghép ${maxSize} viên! +${bonus} lượt`, "system");
       if (remaining > 0) return remaining;
+      if (side === "player") {
+        setBuffDamageMult((b) => (b && b.turnsLeft > 1 ? { ...b, turnsLeft: b.turnsLeft - 1 } : null));
+        setBoxingCatTurns((t) => Math.max(0, t - 1));
+      }
       setTurn(side === "player" ? "enemy" : "player");
       return 1;
     });
@@ -348,19 +387,35 @@ export default function BattleScreen({
         });
         return Math.max(0, s - amount);
       });
-    } else {
-      setShield((s) => {
-        const mitigated = Math.max(1, amount - s);
-        setCatHpArr((arr) => {
-          const nh = Math.max(0, arr[activeCatIdx] - mitigated);
-          const next = arr.map((v, i) => (i === activeCatIdx ? nh : v));
-          if (note) showToast(note, "enemy");
-          if (nh <= 0) handleCatKO();
-          return next;
-        });
-        return Math.max(0, s - amount);
-      });
+      return;
     }
+
+    // Incoming damage to the player — full-block and reflect are checked first
+    if (fullBlockHits > 0) {
+      setFullBlockHits((h) => h - 1);
+      showToast("Chặn đứng hoàn toàn!", "player");
+      spawnFloater(0, "damage", "cat");
+      return;
+    }
+    if (reflectStatus && reflectStatus.turnsLeft > 0) {
+      const reflected = Math.round(amount * reflectStatus.mult);
+      setReflectStatus((r) => (r ? { ...r, turnsLeft: r.turnsLeft - 1 } : r));
+      showToast(`Phản đòn ${reflected} sát thương!`, "player");
+      applyDamage(true, reflected, null);
+      return;
+    }
+
+    setShield((s) => {
+      const mitigated = Math.max(1, amount - s);
+      setCatHpArr((arr) => {
+        const nh = Math.max(0, arr[activeCatIdx] - mitigated);
+        const next = arr.map((v, i) => (i === activeCatIdx ? nh : v));
+        if (note) showToast(note, "enemy");
+        if (nh <= 0) handleCatKO();
+        return next;
+      });
+      return Math.max(0, s - amount);
+    });
   }
 
   function handleCatKO() {
@@ -393,40 +448,114 @@ export default function BattleScreen({
   function useSkill(tier: SkillTier) {
     if (skillPips < tier.cost || busy || phase !== "fighting" || turn !== "player" || paused) return;
     setSkillPips((p) => p - tier.cost);
-    const arch = cat.skillArchetype;
-    let dmg = 0;
-    let heal = 0;
-    let sh = 0;
-    const mult = tier.tier === 1 ? 1 : tier.tier === 2 ? 1.8 : 3;
-    if (arch === "burst") dmg = Math.round(cat.atk * 1.4 * mult);
-    if (arch === "shield") {
-      sh = Math.round((12 + cat.def * 2) * mult);
-      dmg = Math.round(cat.atk * 0.4 * mult);
-    }
-    if (arch === "heal") heal = Math.round(18 * mult);
-    if (arch === "multi") {
-      dmg = Math.round(cat.atk * 0.9 * mult);
-      heal = Math.round(10 * mult);
-      if (tier.tier === 3) sh = 12;
-    }
-
     playCatPose("shoot", 500);
     showToast(`${cat.name} dùng ${tier.name}!`, "player");
-    if (dmg > 0) {
-      setTimeout(() => spawnBullet("right", tier.tier === 3), 100);
+
+    const e = tier.effect;
+
+    // ---- Multi-shot direct attacks ----
+    if (e.shots) {
+      for (let i = 0; i < e.shots; i++) {
+        setTimeout(() => {
+          const dmg = Math.round(cat.atk * 0.9 * (e.damageMult ?? 1));
+          spawnBullet("right", (e.damageMult ?? 1) > 1);
+          setTimeout(() => {
+            setEnemyHurt(true);
+            setEnemyHitTick((t) => t + 1);
+            setTimeout(() => setEnemyHurt(false), 300 / speed);
+            spawnFloater(dmg, (e.damageMult ?? 1) > 1 ? "crit" : "damage", "enemy");
+            applyDamage(true, dmg, null);
+          }, 220);
+        }, i * 260);
+      }
+    }
+
+    // ---- Random area detonation(s) on the board ----
+    if (e.areaClear) {
+      const { size, times } = e.areaClear;
+      for (let i = 0; i < times; i++) {
+        setTimeout(() => {
+          setBoard((b) => {
+            const { cleared, board: nb } = clearRandomArea(b, size);
+            spawnBursts(cleared);
+            const totals: Record<TileType, number> = { attack: 0, defense: 0, mana: 0, heal: 0, gold: 0 };
+            cleared.forEach((c) => (totals[c.type] += 1));
+            resolveAreaTotals(totals);
+            return nb;
+          });
+        }, i * 220);
+      }
+    }
+
+    // ---- Absorb every tile of one type currently on the board ----
+    if (e.absorbType) {
+      setBoard((b) => {
+        const { cleared, board: nb } = absorbAllOfType(b, e.absorbType!);
+        spawnBursts(cleared);
+        const totals: Record<TileType, number> = { attack: 0, defense: 0, mana: 0, heal: 0, gold: 0 };
+        cleared.forEach((c) => (totals[c.type] += 1));
+        resolveAreaTotals(totals, e.damageMult);
+        return nb;
+      });
+    }
+
+    if (e.shield) setShield((s) => s + e.shield!);
+    if (e.healFlat) {
+      setCatHpArr((arr) => arr.map((v, i) => (i === activeCatIdx ? Math.min(cat.hp, v + e.healFlat!) : v)));
+      spawnFloater(e.healFlat, "heal", "cat");
+    }
+    if (e.healPercentOfMax) {
+      const cap = e.overhealCapPercent ? (cat.hp * e.overhealCapPercent) / 100 : cat.hp;
+      const amount = Math.round((cat.hp * e.healPercentOfMax) / 100);
+      setCatHpArr((arr) => arr.map((v, i) => (i === activeCatIdx ? Math.min(cap, v + amount) : v)));
+      spawnFloater(amount, "heal", "cat");
+    }
+    if (e.extraTurns) {
+      setPendingCredits((p) => p + e.extraTurns!);
+      showToast(`+${e.extraTurns} lượt!`, "player");
+    }
+    if (e.fullBlockHits) setFullBlockHits((h) => h + e.fullBlockHits!);
+    if (e.reflect) setReflectStatus({ turnsLeft: e.reflect.turns, mult: e.reflect.mult });
+    if (e.poison) setPoisonStatus({ percent: e.poison.percent, turnsLeft: e.poison.turns });
+    if (e.lifestealPercent) {
+      const amount = Math.max(1, Math.round((enemyHp * e.lifestealPercent) / 100));
+      setTimeout(() => {
+        spawnFloater(amount, "damage", "enemy");
+        applyDamage(true, amount, null);
+        setCatHpArr((arr) => arr.map((v, i) => (i === activeCatIdx ? Math.min(cat.hp, v + amount) : v)));
+        spawnFloater(amount, "heal", "cat");
+      }, 200);
+    }
+    if (e.buffDamageMult) setBuffDamageMult({ mult: e.buffDamageMult.mult, turnsLeft: e.buffDamageMult.turns });
+    if (e.buffNextAttackMult) setBuffNextAttackMult(e.buffNextAttackMult);
+    if (e.summonBoxingCat) {
+      setBoxingCatTurns(e.summonBoxingCat.turns);
+      showToast("Mèo đấm bốc xuất hiện!", "player");
+    }
+  }
+
+  // Resolves the totals from an area-clear/absorb skill through the normal damage/heal/shield math
+  function resolveAreaTotals(totals: Record<TileType, number>, extraMult = 1) {
+    if (totals.attack > 0) {
+      const dmg = Math.round(totals.attack * cat.atk * 0.5 * extraMult);
       setTimeout(() => {
         setEnemyHurt(true);
         setEnemyHitTick((t) => t + 1);
-        setTimeout(() => setEnemyHurt(false), 400 / speed);
-        spawnFloater(dmg, tier.tier === 3 ? "crit" : "damage", "enemy");
-      }, 360);
-      applyDamage(true, dmg, null);
+        setTimeout(() => setEnemyHurt(false), 300 / speed);
+        spawnFloater(dmg, extraMult > 1 ? "crit" : "damage", "enemy");
+        applyDamage(true, dmg, null);
+      }, 150);
     }
-    if (heal > 0) {
+    if (totals.defense > 0) setShield((s) => s + totals.defense * 3);
+    if (totals.heal > 0) {
+      const heal = totals.heal * 6;
       setCatHpArr((arr) => arr.map((v, i) => (i === activeCatIdx ? Math.min(cat.hp, v + heal) : v)));
       spawnFloater(heal, "heal", "cat");
     }
-    if (sh > 0) setShield((s) => s + sh);
+    if (totals.mana > 0) {
+      const t = totals.mana * TIME_PER_ENERGY_TILE;
+      setTimeBank((tb) => Math.min(MAX_TIME, tb + t));
+    }
   }
 
   function finishBattle(won: boolean) {
@@ -555,10 +684,15 @@ export default function BattleScreen({
           {floaters.filter((f) => f.target === "cat").map((f) => (
             <FloatingNumber key={f.id} value={f.value} kind={f.kind} style={{ left: "50%", top: "0%", transform: "translateX(-50%)" }} />
           ))}
+          {boxingCatTurns > 0 && (
+            <div className="absolute -bottom-1 -right-3 z-20 h-10 w-10 overflow-hidden rounded-full border-2 border-amber-300 bg-slate-900 shadow-lg">
+              <AnimatedSprite src="/sprites/catboxing_idle.png" frames={10} fps={8} className="h-full w-full scale-150" />
+            </div>
+          )}
         </div>
         {shield > 0 && <span className="relative z-10 shrink-0 text-xs text-sky-300">🛡 +{shield}</span>}
         {enemyShield > 0 && <span className="relative z-10 shrink-0 text-xs text-red-300">🛡 +{enemyShield}</span>}
-        <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible rounded-lg border border-red-700/40 bg-slate-900/50">
+        <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible">
           <div className="h-full w-full overflow-hidden">
             <div key={enemyHitTick} className={`h-full w-full ${enemyHurt ? "anim-hurt" : enemyPose === "attack" ? "anim-attack-left" : ""}`}>
               <div className={`h-full w-full ${enemyDefeated ? "anim-dead" : ""}`}>

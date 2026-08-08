@@ -17,7 +17,6 @@ export interface CatDefinition {
   atk: number;
   def: number;
   sprite: SpriteSet;
-  skillArchetype: import("./skills").SkillArchetype;
 }
 
 export interface EnemyDefinition {

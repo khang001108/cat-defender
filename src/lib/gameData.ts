@@ -1,5 +1,4 @@
 import { CatDefinition, EnemyDefinition, UpgradeItem } from "./types";
-import { skillArchetypeFor } from "./skills";
 
 function catSprite(key: string) {
   return {
@@ -11,26 +10,25 @@ function catSprite(key: string) {
 
 export const CATS: CatDefinition[] = (
   [
-    { id: "cat1", name: "Mèo Cam", role: "Cân bằng, dễ chơi", hp: 120, mp: 100, atk: 14, def: 6 },
-    { id: "cat2", name: "Mèo Kính Bơi", role: "Sát thương ổn định", hp: 115, mp: 105, atk: 15, def: 5 },
-    { id: "cat3", name: "Mèo Khăn Rằn", role: "Máu cao", hp: 130, mp: 95, atk: 12, def: 7 },
-    { id: "cat4", name: "Mèo Mũ Vàng", role: "Tấn công nhanh", hp: 100, mp: 115, atk: 17, def: 4 },
-    { id: "cat5", name: "Mèo Đốm", role: "Cân bằng", hp: 118, mp: 100, atk: 14, def: 6 },
-    { id: "cat6", name: "Mèo Xanh Dương", role: "Phòng thủ tốt", hp: 128, mp: 92, atk: 12, def: 8 },
-    { id: "cat7", name: "Mèo Cầu Vồng", role: "Đa dụng", hp: 112, mp: 108, atk: 15, def: 5 },
-    { id: "cat8", name: "Mèo Đen", role: "Sát thương cao, máu thấp", hp: 92, mp: 112, atk: 19, def: 3 },
-    { id: "cat9", name: "Mèo Xám Mũ Phớt", role: "Sát thương cao, máu thấp", hp: 95, mp: 110, atk: 18, def: 4 },
-    { id: "cat10", name: "Mèo Đội Trưởng", role: "Chỉ huy, cân bằng", hp: 122, mp: 102, atk: 14, def: 6 },
-    { id: "cat11", name: "Mèo Trắng", role: "Tốc độ nhanh, hồi chiêu tốt", hp: 105, mp: 130, atk: 15, def: 5 },
-    { id: "cat12", name: "Mèo Ngụy Trang", role: "Linh hoạt", hp: 110, mp: 108, atk: 16, def: 5 },
-    { id: "cat13", name: "Mèo Đặc Nhiệm", role: "Tấn công mạnh", hp: 108, mp: 106, atk: 17, def: 5 },
-    { id: "cat14", name: "Mèo Vàng Mũ Sắt", role: "Máu cao, phòng thủ tốt", hp: 135, mp: 90, atk: 12, def: 8 },
-    { id: "cat15", name: "Mèo Chỉ Huy Trưởng", role: "Boss cuối, mạnh toàn diện", hp: 140, mp: 120, atk: 18, def: 7 },
-  ] as Omit<CatDefinition, "sprite" | "skillArchetype">[]
+    { id: "cat1", name: "Kem", role: "Nổ diện rộng ngẫu nhiên trên bàn cờ", hp: 120, mp: 100, atk: 14, def: 6 },
+    { id: "cat2", name: "Zin", role: "Sát thương nhân đôi cực mạnh", hp: 115, mp: 105, atk: 15, def: 5 },
+    { id: "cat3", name: "Bo", role: "Chuyên gia dựng khiên", hp: 130, mp: 95, atk: 12, def: 7 },
+    { id: "cat4", name: "Su", role: "Hồi máu dồi dào", hp: 100, mp: 115, atk: 17, def: 4 },
+    { id: "cat5", name: "Mun", role: "Phá bàn cờ diện rộng", hp: 118, mp: 100, atk: 14, def: 6 },
+    { id: "cat6", name: "Sóc", role: "Tặng thêm lượt đánh", hp: 128, mp: 92, atk: 12, def: 8 },
+    { id: "cat7", name: "Tia", role: "Khiên miễn nhiễm sát thương", hp: 112, mp: 108, atk: 15, def: 5 },
+    { id: "cat8", name: "Mực", role: "Triệu hồi mèo đấm bốc", hp: 92, mp: 112, atk: 19, def: 3 },
+    { id: "cat9", name: "Cáo", role: "Phản đòn & độc dược", hp: 95, mp: 110, atk: 18, def: 4 },
+    { id: "cat10", name: "Kiên", role: "Hút máu địch", hp: 122, mp: 102, atk: 14, def: 6 },
+    { id: "cat11", name: "Tuyết", role: "Bắn liên hoàn", hp: 105, mp: 130, atk: 15, def: 5 },
+    { id: "cat12", name: "Rừng", role: "Hồi máu vượt ngưỡng", hp: 110, mp: 108, atk: 16, def: 5 },
+    { id: "cat13", name: "Hổ", role: "Tấn công dồn dập", hp: 108, mp: 106, atk: 17, def: 5 },
+    { id: "cat14", name: "Kim", role: "Toàn diện: máu, khiên, lượt", hp: 135, mp: 90, atk: 12, def: 8 },
+    { id: "cat15", name: "Vương", role: "Buff sát thương cực đại", hp: 140, mp: 120, atk: 18, def: 7 },
+  ] as Omit<CatDefinition, "sprite">[]
 ).map((c) => ({
   ...c,
   sprite: catSprite(c.id),
-  skillArchetype: skillArchetypeFor(c.atk, c.def, c.mp),
 }));
 
 function regSprite(key: string) {
