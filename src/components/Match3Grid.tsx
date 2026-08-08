@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Board, areAdjacent } from "@/lib/board";
 import { TileType } from "@/lib/types";
 import { TileIcon, TILE_COLORS } from "./TileIcon";
-import { ImpactBurst } from "./Effects";
+import { ImpactBurst, Trail } from "./Effects";
 
 export interface Burst {
   id: number;
@@ -28,6 +28,7 @@ export default function Match3Grid({
   updateTick = 0,
   externalSwap,
   hint,
+  bomb,
 }: {
   board: Board;
   onSwap: (r1: number, c1: number, r2: number, c2: number) => void;
@@ -41,10 +42,13 @@ export default function Match3Grid({
   externalSwap?: ExternalSwapSignal | null;
   /** cells to gently pulse as a hint after the player has been idle for a while */
   hint?: [number, number][] | null;
+  /** the ticking bomb's current row/col, drawn as an overlay marker */
+  bomb?: { row: number; col: number } | null;
 }) {
   const [selected, setSelected] = useState<[number, number] | null>(null);
   const [swapAnim, setSwapAnim] = useState<{ a: [number, number]; b: [number, number] } | null>(null);
   const size = board.length;
+  const invalidSwapFallback = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fallingSet = new Set((fallingCells ?? []).map((c) => `${c.r},${c.c}`));
   const hintSet = new Set((hint ?? []).map(([r, c]) => `${r},${c}`));
@@ -52,9 +56,22 @@ export default function Match3Grid({
   useEffect(() => {
     if (!externalSwap) return;
     setSwapAnim({ a: externalSwap.a, b: externalSwap.b });
-    const t = setTimeout(() => setSwapAnim(null), 220);
-    return () => clearTimeout(t);
+    if (invalidSwapFallback.current) clearTimeout(invalidSwapFallback.current);
+    invalidSwapFallback.current = setTimeout(() => setSwapAnim(null), 800);
   }, [externalSwap]);
+
+  // The swap-slide transform must stay in place until the REAL board data reflects the swap —
+  // clearing it on a fixed timer (independent of when the parent actually updates `board`)
+  // caused a visible snap-back-then-jump flicker. Instead, drop the transform exactly when the
+  // board prop itself changes; a fallback timer only covers invalid moves (board never changes).
+  useEffect(() => {
+    setSwapAnim(null);
+    if (invalidSwapFallback.current) {
+      clearTimeout(invalidSwapFallback.current);
+      invalidSwapFallback.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board]);
 
   function handleClick(r: number, c: number) {
     if (disabled || swapAnim) return;
@@ -72,8 +89,11 @@ export default function Match3Grid({
       setSwapAnim({ a: [sr, sc], b: [r, c] });
       setTimeout(() => {
         onSwap(sr, sc, r, c);
-        setSwapAnim(null);
       }, 160);
+      // Safety net: if the move turns out invalid, the board never changes, so make sure the
+      // ghost transform still clears (snapping back) instead of staying stuck forever.
+      if (invalidSwapFallback.current) clearTimeout(invalidSwapFallback.current);
+      invalidSwapFallback.current = setTimeout(() => setSwapAnim(null), 800);
     } else {
       setSelected([r, c]);
     }
@@ -136,6 +156,30 @@ export default function Match3Grid({
             }}
           />
         ))}
+        {bursts.map((b) => (
+          <Trail
+            key={`trail-${b.id}`}
+            type={b.type}
+            direction={b.type === "attack" ? "right" : "left"}
+            style={{
+              left: `${(b.c / size + 0.5 / size) * 100}%`,
+              top: `${(b.r / size + 0.5 / size) * 100}%`,
+            }}
+          />
+        ))}
+        {bomb && (
+          <div
+            className="fx-bomb-pulse absolute flex items-center justify-center"
+            style={{
+              left: `${(bomb.col / size) * 100}%`,
+              top: `${(bomb.row / size) * 100}%`,
+              width: `${100 / size}%`,
+              height: `${100 / size}%`,
+            }}
+          >
+            <img src="/ui/addon6.png" alt="Bom" className="h-[85%] w-[85%] object-contain drop-shadow-[0_0_6px_rgba(251,146,60,0.9)]" />
+          </div>
+        )}
       </div>
     </div>
   );

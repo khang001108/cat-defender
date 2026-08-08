@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Board, createBoard, cloneBoard, swapCells, findMatches, resolveMatches, findBestMove, clearRandomArea, absorbAllOfType } from "@/lib/board";
+import { Board, BOARD_SIZE, createBoard, cloneBoard, swapCells, findMatches, resolveMatches, findBestMove, clearRandomArea, absorbAllOfType } from "@/lib/board";
 import { CatDefinition, EnemyDefinition, TileType } from "@/lib/types";
 import { SKILLS_BY_CAT, SkillTier } from "@/lib/skills";
 import { BattleMap } from "@/lib/maps";
@@ -22,6 +22,10 @@ const TIME_PER_ENERGY_TILE = 4; // seconds gained per matched energy tile
 const SKILL_TILES_PER_PIP = 3; // matching this many "skill" tiles in one group grants 1 pip
 const MAX_PIPS = 3;
 const HINT_DELAY = 10000; // show a hint after 10s of player inactivity
+const ENRAGE_AT = 60; // seconds — past this point all damage is boosted so fights can't stall forever
+const ENRAGE_MULT = 1.5;
+const BOMB_AT = 120; // seconds — a bomb tile spawns once the fight has run this long
+const BOMB_DAMAGE = 32; // flat bonus damage dealt when the bomb reaches the bottom row
 
 const SKILL_LEGEND: { type: TileType; name: string; desc: string }[] = [
   { type: "attack", name: "Bắn", desc: "Gây sát thương" },
@@ -68,6 +72,12 @@ export default function BattleScreen({
   const [buffDamageMult, setBuffDamageMult] = useState<{ mult: number; turnsLeft: number } | null>(null);
   const [buffNextAttackMult, setBuffNextAttackMult] = useState<number | null>(null);
   const [boxingCatTurns, setBoxingCatTurns] = useState(0);
+
+  // ---- Pacing mechanics: fights escalate over real time so they can't drag on forever ----
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const enraged = elapsedSeconds >= ENRAGE_AT;
+  const [bomb, setBomb] = useState<{ row: number; col: number } | null>(null);
+  const bombSpawnedRef = useRef(false);
   const [score, setScore] = useState(0);
   const [paused, setPaused] = useState(false);
 
@@ -180,6 +190,24 @@ export default function BattleScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enemyTimeBank]);
 
+  // ---- Real-time battle clock: drives the enrage boost and the bomb spawn, independent of turns ----
+  useEffect(() => {
+    if (phase !== "fighting" || paused) return;
+    const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [phase, paused]);
+
+  useEffect(() => {
+    if (elapsedSeconds === ENRAGE_AT) showToast("⚔️ Trận đấu leo thang! Sát thương tăng!", "system");
+    if (elapsedSeconds >= BOMB_AT && !bombSpawnedRef.current && phase === "fighting") {
+      bombSpawnedRef.current = true;
+      const col = Math.floor(Math.random() * BOARD_SIZE);
+      setBomb({ row: 0, col });
+      showToast("💣 Một quả bom xuất hiện trên bàn cờ!", "system");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elapsedSeconds]);
+
   // ---- Poison ticks once at the start of the enemy's turn, before they act ----
   useEffect(() => {
     if (turn !== "enemy" || phase !== "fighting") return;
@@ -267,6 +295,18 @@ export default function BattleScreen({
 
     setRound((r) => r + 1);
     applyTurnEffects(totals, actingSide, maxSize, skillPipsGained);
+
+    // The bomb (once spawned) sinks one row per completed turn, from either side
+    if (bomb) {
+      const nextRow = bomb.row + 1;
+      if (nextRow >= BOARD_SIZE - 1) {
+        setTimeout(() => triggerBombExplosion(actingSide), 300 / speed);
+        setBomb(null);
+      } else {
+        setBomb({ row: nextRow, col: bomb.col });
+      }
+    }
+
     await sleep(350 / speed);
     setBusy(false);
   }
@@ -324,7 +364,7 @@ export default function BattleScreen({
     if (skillFired) dmg += Math.round(atk * 3);
 
     if (dmg > 0) {
-      const finalDmg = Math.max(1, dmg - (isPlayer ? 0 : def));
+      const finalDmg = scaleDmg(Math.max(1, dmg - (isPlayer ? 0 : def)));
       if (isPlayer) {
         playCatPose("shoot", skillFired ? 650 : 400);
         setTimeout(() => spawnBullet("right", skillFired), 120);
@@ -369,7 +409,7 @@ export default function BattleScreen({
     // Boxing-cat ally: punches once per player move while summoned, scaled by the biggest match made
     if (isPlayer && boxingCatTurns > 0 && maxSize >= 3) {
       const punchMult = maxSize === 3 ? 3 : maxSize === 4 ? 3 : 5;
-      const punchDmg = Math.max(1, Math.round(cat.atk * 0.3 * punchMult));
+      const punchDmg = scaleDmg(Math.max(1, Math.round(cat.atk * 0.3 * punchMult)));
       setTimeout(() => {
         spawnFloater(punchDmg, "crit", "enemy");
         applyDamage(true, punchDmg, `Mèo đấm bốc ra đòn x${punchMult}!`);
@@ -388,6 +428,10 @@ export default function BattleScreen({
       setTurn(side === "player" ? "enemy" : "player");
       return 1;
     });
+  }
+
+  function scaleDmg(n: number) {
+    return enraged ? Math.round(n * ENRAGE_MULT) : n;
   }
 
   function applyDamage(byPlayer: boolean, amount: number, note: string | null) {
@@ -574,6 +618,22 @@ export default function BattleScreen({
     }
   }
 
+  // Bomb reached the bottom row — detonates a 3x3 area for spectacle and deals guaranteed bonus
+  // damage to whichever side did NOT cause it to land (i.e. the opponent of `bySide`).
+  function triggerBombExplosion(bySide: Side) {
+    setBoard((b) => {
+      const { cleared, board: nb } = clearRandomArea(b, 3);
+      spawnBursts(cleared);
+      return nb;
+    });
+    showToast("💣 BÙM! Bom nổ tung một vùng trên bàn cờ!", "system");
+    const dmg = scaleDmg(BOMB_DAMAGE);
+    setTimeout(() => {
+      spawnFloater(dmg, "crit", bySide === "player" ? "enemy" : "cat");
+      applyDamage(bySide === "player", dmg, "💣 Trúng bom!");
+    }, 420 / speed);
+  }
+
   function finishBattle(won: boolean) {
     setPhase(won ? "victory" : "defeat");
     if (won) playEnemyPose("dead", 99999);
@@ -587,48 +647,13 @@ export default function BattleScreen({
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-2 overflow-x-hidden p-3">
-      <div className="relative flex items-center justify-between gap-1">
-        <button onClick={() => setSkillMenuOpen((v) => !v)} disabled={skillPips === 0} className="relative shrink-0 overflow-hidden rounded-full">
-          <Image src="/ui/skill_icon.png" alt="Kỹ năng" width={30} height={30} className={skillPips === 0 ? "opacity-40" : ""} />
-          {skillPips > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-purple-500 text-[8px] font-bold text-white">
-              {skillPips}
-            </span>
-          )}
+      <div className="relative flex items-center justify-end gap-2">
+        <button onClick={() => setInfoMenuOpen((v) => !v)} className="overflow-hidden rounded-full">
+          <Image src="/ui/info_icon.png" alt="Chú thích" width={26} height={26} />
         </button>
-        {skillMenuOpen && (
-          <div className="absolute left-0 top-full z-30 mt-1 grid grid-cols-3 gap-1.5 rounded-xl border border-purple-600 bg-slate-950 p-2 shadow-2xl">
-            {skillTiers.map((tier) => {
-              const usable = skillPips >= tier.cost && turn === "player" && phase === "fighting" && !busy && !paused;
-              return (
-                <button
-                  key={tier.tier}
-                  onClick={() => {
-                    useSkill(tier);
-                    setSkillMenuOpen(false);
-                  }}
-                  disabled={!usable}
-                  className={`w-24 rounded-lg border p-1.5 text-center transition ${
-                    usable ? "border-purple-500 bg-purple-900/40 hover:bg-purple-800/50" : "border-slate-700 bg-slate-900/40 opacity-50"
-                  }`}
-                >
-                  <p className="truncate text-[10px] font-bold text-purple-200">{tier.name}</p>
-                  <p className="truncate text-[8px] text-slate-400">{tier.desc}</p>
-                  <p className="mt-0.5 text-[9px] text-purple-300">{tier.cost} pip</p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="flex shrink-0 items-center gap-2">
-          <button onClick={() => setInfoMenuOpen((v) => !v)} className="overflow-hidden rounded-full">
-            <Image src="/ui/info_icon.png" alt="Chú thích" width={26} height={26} />
-          </button>
-          <button onClick={() => setPaused(true)} className="overflow-hidden rounded-full">
-            <Image src="/ui/icon_settings.png" alt="Tạm dừng" width={26} height={26} />
-          </button>
-        </div>
+        <button onClick={() => setPaused(true)} className="overflow-hidden rounded-full">
+          <Image src="/ui/icon_settings.png" alt="Tạm dừng" width={26} height={26} />
+        </button>
 
         {infoMenuOpen && (
           <div className="absolute right-0 top-full z-30 mt-1 grid grid-cols-2 gap-1.5 rounded-xl border border-amber-600 bg-slate-950 p-2 shadow-2xl">
@@ -664,36 +689,66 @@ export default function BattleScreen({
       )}
 
       <div className="flex items-start justify-between gap-2">
-        <div
-          className={`flex min-w-0 flex-1 flex-col gap-1 rounded-xl border-2 bg-slate-900/80 p-2 transition-colors ${
-            turn === "player" ? "border-sky-400 shadow-[0_0_10px_1px_rgba(56,189,248,0.4)]" : "border-amber-700/50"
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-amber-400 bg-slate-800">
-              <AnimatedSprite src={cat.sprite.idle.src} frames={cat.sprite.idle.frames} fps={10} className="h-full w-full scale-150" />
+        <div className="relative min-w-0 flex-1">
+          <button
+            onClick={() => setSkillMenuOpen((v) => !v)}
+            className={`flex w-full min-w-0 flex-col gap-1 rounded-xl border-2 bg-slate-900/80 p-2 text-left transition-colors ${
+              turn === "player" ? "border-sky-400 shadow-[0_0_10px_1px_rgba(56,189,248,0.4)]" : "border-amber-700/50"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border-2 border-amber-400 bg-slate-800">
+                <AnimatedSprite src={cat.sprite.idle.src} frames={cat.sprite.idle.frames} fps={10} className="h-full w-full scale-150" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[11px] font-semibold text-amber-200">{cat.name}</p>
+                <Bar color="bg-red-500" value={hp} max={cat.hp} />
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[11px] font-semibold text-amber-200">{cat.name}</p>
-              <Bar color="bg-red-500" value={hp} max={cat.hp} />
+            <div className="flex items-center gap-1.5">
+              <span className="shrink-0 text-[10px] text-amber-300">⏱</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className={`h-full transition-all duration-150 ${timeBank <= 20 ? "bg-red-500" : "bg-amber-400"}`}
+                  style={{ width: `${Math.min(100, (timeBank / MAX_TIME) * 100)}%` }}
+                />
+              </div>
+              <span className={`shrink-0 text-[10px] font-semibold tabular-nums ${timeBank <= 20 ? "text-red-400" : "text-amber-200"}`}>{formatTime(timeBank)}</span>
             </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="shrink-0 text-[10px] text-amber-300">⏱</span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
-              <div
-                className={`h-full transition-all duration-150 ${timeBank <= 20 ? "bg-red-500" : "bg-amber-400"}`}
-                style={{ width: `${Math.min(100, (timeBank / MAX_TIME) * 100)}%` }}
-              />
+            <div className="flex items-center gap-1">
+              <span className="shrink-0 flex items-center gap-0.5 text-[9px] text-purple-300">
+                <Image src="/ui/skill_icon.png" alt="" width={12} height={12} />
+                Skill
+              </span>
+              {[1, 2, 3].map((p) => (
+                <span key={p} className={`h-2.5 flex-1 rounded-full ${skillPips >= p ? "skill-pip-fill bg-purple-400" : "bg-slate-800"}`} />
+              ))}
             </div>
-            <span className={`shrink-0 text-[10px] font-semibold tabular-nums ${timeBank <= 20 ? "text-red-400" : "text-amber-200"}`}>{formatTime(timeBank)}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="shrink-0 text-[9px] text-purple-300">Skill</span>
-            {[1, 2, 3].map((p) => (
-              <span key={p} className={`h-2.5 flex-1 rounded-full ${skillPips >= p ? "skill-pip-fill bg-purple-400" : "bg-slate-800"}`} />
-            ))}
-          </div>
+          </button>
+          {skillMenuOpen && (
+            <div className="absolute left-0 top-full z-30 mt-1 grid grid-cols-3 gap-1.5 rounded-xl border border-purple-600 bg-slate-950 p-2 shadow-2xl">
+              {skillTiers.map((tier) => {
+                const usable = skillPips >= tier.cost && turn === "player" && phase === "fighting" && !busy && !paused;
+                return (
+                  <button
+                    key={tier.tier}
+                    onClick={() => {
+                      useSkill(tier);
+                      setSkillMenuOpen(false);
+                    }}
+                    disabled={!usable}
+                    className={`w-24 rounded-lg border p-1.5 text-center transition ${
+                      usable ? "border-purple-500 bg-purple-900/40 hover:bg-purple-800/50" : "border-slate-700 bg-slate-900/40 opacity-50"
+                    }`}
+                  >
+                    <p className="truncate text-[10px] font-bold text-purple-200">{tier.name}</p>
+                    <p className="truncate text-[8px] text-slate-400">{tier.desc}</p>
+                    <p className="mt-0.5 text-[9px] text-purple-300">{tier.cost} pip</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div
           className={`flex min-w-0 flex-1 flex-col gap-1 rounded-xl border-2 bg-slate-900/80 p-2 transition-colors ${
@@ -733,9 +788,11 @@ export default function BattleScreen({
         buffNextAttackMult ||
         boxingCatTurns > 0 ||
         pendingCredits > 1 ||
+        enraged ||
         (poisonStatus && poisonStatus.turnsLeft > 0)) && (
         <div className="flex flex-wrap items-center gap-1.5 px-1">
           {pendingCredits > 1 && <StatusBadge icon="🔄" label={`+${pendingCredits - 1} lượt`} title="Lượt cộng dồn còn lại" />}
+          {enraged && <StatusBadge icon="⚔️" label={`x${ENRAGE_MULT}`} title="Trận đấu leo thang — sát thương tăng" />}
           {fullBlockHits > 0 && <StatusBadge icon="🛡️" label={`x${fullBlockHits}`} title="Miễn sát thương" />}
           {reflectStatus && reflectStatus.turnsLeft > 0 && <StatusBadge icon="🔁" label={`${reflectStatus.turnsLeft}`} title="Phản đòn" />}
           {buffDamageMult && <StatusBadge icon="🔥" label={`x${buffDamageMult.mult}·${buffDamageMult.turnsLeft}`} title="Tăng sát thương" />}
@@ -799,6 +856,7 @@ export default function BattleScreen({
         updateTick={updateTick}
         externalSwap={externalSwap}
         hint={hint}
+        bomb={bomb}
       />
 
       {phase !== "fighting" && (

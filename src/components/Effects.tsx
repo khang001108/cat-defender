@@ -1,8 +1,19 @@
 import { TileType } from "@/lib/types";
 import { TILE_COLORS } from "./TileIcon";
 
+// Each gem type gets its own little sparkle signature (count / spread / color) so a match
+// doesn't just look like "an explosion" but reads as "that gem" popping.
+const SPARKLE_CONFIG: Record<TileType, { count: number; color: string; spread: number }> = {
+  attack: { count: 5, color: "#fecaca", spread: 26 },
+  defense: { count: 4, color: "#bfdbfe", spread: 20 },
+  mana: { count: 7, color: "#e9d5ff", spread: 30 },
+  heal: { count: 5, color: "#fbcfe8", spread: 22 },
+  gold: { count: 6, color: "#fef3c7", spread: 28 },
+};
+
 export function ImpactBurst({ type, style }: { type: TileType; style?: React.CSSProperties }) {
   const c = TILE_COLORS[type];
+  const sp = SPARKLE_CONFIG[type];
   return (
     <div className="pointer-events-none absolute" style={style}>
       {/* real explosion sprite for a punchier, more detailed hit */}
@@ -25,6 +36,43 @@ export function ImpactBurst({ type, style }: { type: TileType; style?: React.CSS
       <svg viewBox="0 0 60 60" className="fx-burst-ring2 absolute inset-0 h-full w-full" style={{ color: c.light }}>
         <circle cx="30" cy="30" r="10" fill="none" stroke="currentColor" strokeWidth="2" opacity="0.9" />
       </svg>
+      {/* per-gem sparkle signature — a ring of little glints unique to this tile type */}
+      <svg viewBox="0 0 60 60" className="absolute inset-0 h-full w-full">
+        {Array.from({ length: sp.count }).map((_, i) => {
+          const angle = (i / sp.count) * Math.PI * 2;
+          const x = 30 + Math.cos(angle) * sp.spread;
+          const y = 30 + Math.sin(angle) * sp.spread;
+          return (
+            <circle
+              key={i}
+              cx={x}
+              cy={y}
+              r={1.6}
+              fill={sp.color}
+              className="fx-sparkle-dot"
+              style={{ animationDelay: `${i * 35}ms` }}
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// A small glowing mote that flies out of a resolved match, curving toward the character-status
+// area, so damage/heal/shield/etc. gems visibly feed into the stat they affect.
+export function Trail({ type, direction, style }: { type: TileType; direction: "left" | "right"; style?: React.CSSProperties }) {
+  const c = TILE_COLORS[type];
+  return (
+    <div
+      className={`pointer-events-none absolute z-20 ${direction === "left" ? "fx-trail-left" : "fx-trail-right"}`}
+      style={{ ...style, color: c.base }}
+    >
+      <div className="relative h-3 w-3">
+        <div className="absolute inset-0 rounded-full" style={{ background: c.base, boxShadow: `0 0 8px 3px ${c.glow}` }} />
+        <div className="fx-trail-sparkle absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full bg-white" />
+        <div className="fx-trail-sparkle absolute -bottom-1 -left-1 h-1 w-1 rounded-full bg-white" style={{ animationDelay: "120ms" }} />
+      </div>
     </div>
   );
 }
