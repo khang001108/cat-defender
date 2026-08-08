@@ -50,4 +50,5 @@ export interface PlayerProfile {
   notificationsEnabled: boolean;
   gold: number;
   upgradeLevels: Record<string, number>;
+  highestLevelUnlocked: number;
 }

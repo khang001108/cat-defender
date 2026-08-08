@@ -26,7 +26,7 @@ const HINT_DELAY = 10000; // show a hint after 10s of player inactivity
 const SKILL_LEGEND: { type: TileType; name: string; desc: string }[] = [
   { type: "attack", name: "Bắn", desc: "Gây sát thương" },
   { type: "heal", name: "Hồi Máu", desc: "Hồi máu bản thân" },
-  { type: "mana", name: "Năng Lượng", desc: "Cộng thời gian" },
+  { type: "gold", name: "Năng Lượng", desc: "Cộng thời gian" },
   { type: "defense", name: "Khiên", desc: "Giảm sát thương" },
 ];
 
@@ -249,14 +249,14 @@ export default function BattleScreen({
       const changed = Object.values(counts).some((v) => v > 0);
       if (!changed) break;
       (Object.keys(counts) as TileType[]).forEach((k) => (totals[k] += counts[k]));
-      if (counts.gold > 0) skillPipsGained += Math.floor(counts.gold / SKILL_TILES_PER_PIP) || (counts.gold >= 3 ? 1 : 0);
+      if (counts.mana > 0) skillPipsGained += Math.floor(counts.mana / SKILL_TILES_PER_PIP) || (counts.mana >= 3 ? 1 : 0);
       maxSize = Math.max(maxSize, maxMatchSize);
       spawnBursts(clearedCells);
       working = nextBoard;
       setBoard(working);
       setFallingCells(newCells);
       setUpdateTick((t) => t + 1);
-      await sleep(190 / speed);
+      await sleep(250 / speed);
     }
 
     setRound((r) => r + 1);
@@ -285,15 +285,14 @@ export default function BattleScreen({
         } else if (buffDamageMult) {
           base = Math.round(base * buffDamageMult.mult);
         }
-        if (boxingCatTurns > 0) base += Math.round(cat.atk * 0.5);
       }
       dmg += base;
     }
     if (totals.defense > 0) shieldGain += totals.defense * 3;
     if (totals.heal > 0) healAmt += totals.heal * 6;
 
-    if (totals.mana > 0) {
-      const timeGain = totals.mana * TIME_PER_ENERGY_TILE;
+    if (totals.gold > 0) {
+      const timeGain = totals.gold * TIME_PER_ENERGY_TILE;
       if (isPlayer) setTimeBank((t) => Math.min(MAX_TIME, t + timeGain));
       else setEnemyTimeBank((t) => Math.min(MAX_TIME, t + timeGain));
       showToast(`+${timeGain}s thời gian!`, isPlayer ? "player" : "enemy");
@@ -306,7 +305,7 @@ export default function BattleScreen({
 
     let skillFired = false;
     if (!isPlayer) {
-      if (totals.gold > 0) mpGain += totals.gold * 10;
+      if (totals.mana > 0) mpGain += totals.mana * 10;
       setEnemyMp((prev) => {
         let n = prev + mpGain;
         if (n >= ENEMY_MAX_MP) {
@@ -359,6 +358,16 @@ export default function BattleScreen({
       if (isPlayer) setShield((s) => s + shieldGain);
       else setEnemyShield((s) => s + shieldGain);
       showToast(`Khiên +${shieldGain}`, isPlayer ? "player" : "enemy");
+    }
+
+    // Boxing-cat ally: punches once per player move while summoned, scaled by the biggest match made
+    if (isPlayer && boxingCatTurns > 0 && maxSize >= 3) {
+      const punchMult = maxSize === 3 ? 3 : maxSize === 4 ? 3 : 5;
+      const punchDmg = Math.max(1, Math.round(cat.atk * 0.3 * punchMult));
+      setTimeout(() => {
+        spawnFloater(punchDmg, "crit", "enemy");
+        applyDamage(true, punchDmg, `Mèo đấm bốc ra đòn x${punchMult}!`);
+      }, 550 / speed);
     }
 
     const bonus = maxSize >= 5 ? 2 : maxSize === 4 ? 1 : 0;
@@ -484,7 +493,7 @@ export default function BattleScreen({
             resolveAreaTotals(totals);
             return nb;
           });
-        }, i * 220);
+        }, i * 480);
       }
     }
 
@@ -579,15 +588,6 @@ export default function BattleScreen({
         <span className="shrink-0 rounded-full border border-amber-600 bg-slate-900 px-2.5 py-0.5 text-[10px] font-semibold text-amber-300">
           Hiệp {round}
         </span>
-        <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${turn === "player" ? "bg-sky-600 text-white" : "bg-red-600 text-white"}`}>
-          {turn === "player" ? "Lượt của bạn" : "Lượt đối thủ"}
-        </span>
-        <button
-          onClick={() => setSpeed((s) => (s === 1 ? 2 : 1))}
-          className={`shrink-0 rounded px-2 py-1 text-[10px] font-semibold ${speed === 2 ? "bg-amber-500 text-slate-900" : "bg-slate-800 text-amber-300"}`}
-        >
-          x{speed}
-        </button>
         <button onClick={() => setPaused(true)} className="shrink-0 overflow-hidden rounded-full">
           <Image src="/ui/icon_settings.png" alt="Tạm dừng" width={26} height={26} />
         </button>
@@ -640,15 +640,6 @@ export default function BattleScreen({
               <span key={p} className={`h-2.5 flex-1 rounded-full ${skillPips >= p ? "skill-pip-fill bg-purple-400" : "bg-slate-800"}`} />
             ))}
           </div>
-          {(fullBlockHits > 0 || (reflectStatus && reflectStatus.turnsLeft > 0) || buffDamageMult || buffNextAttackMult || boxingCatTurns > 0) && (
-            <div className="flex flex-wrap items-center gap-1 pt-0.5">
-              {fullBlockHits > 0 && <StatusBadge icon="🛡️" label={`x${fullBlockHits}`} title="Miễn sát thương" />}
-              {reflectStatus && reflectStatus.turnsLeft > 0 && <StatusBadge icon="🔁" label={`${reflectStatus.turnsLeft}`} title="Phản đòn" />}
-              {buffDamageMult && <StatusBadge icon="🔥" label={`x${buffDamageMult.mult}·${buffDamageMult.turnsLeft}`} title="Tăng sát thương" />}
-              {buffNextAttackMult && <StatusBadge icon="⚡" label={`x${buffNextAttackMult}`} title="Đòn tiếp theo tăng sát thương" />}
-              {boxingCatTurns > 0 && <StatusBadge icon="🥊" label={`${boxingCatTurns}`} title="Mèo đấm bốc hỗ trợ" />}
-            </div>
-          )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-xl border border-red-700/50 bg-slate-900/80 p-2">
           <div className="flex items-center gap-2">
@@ -674,19 +665,38 @@ export default function BattleScreen({
             </div>
             <span className="shrink-0 text-[10px] text-amber-300">⏱</span>
           </div>
-          {poisonStatus && poisonStatus.turnsLeft > 0 && (
-            <div className="flex justify-end pt-0.5">
-              <StatusBadge icon="☠️" label={`${poisonStatus.turnsLeft}`} title="Trúng độc" />
-            </div>
-          )}
         </div>
       </div>
 
+      {/* Active buff/status icons live below both status cards, not inside them */}
+      {(fullBlockHits > 0 ||
+        (reflectStatus && reflectStatus.turnsLeft > 0) ||
+        buffDamageMult ||
+        buffNextAttackMult ||
+        boxingCatTurns > 0 ||
+        (poisonStatus && poisonStatus.turnsLeft > 0)) && (
+        <div className="flex flex-wrap items-center gap-1.5 px-1">
+          {fullBlockHits > 0 && <StatusBadge icon="🛡️" label={`x${fullBlockHits}`} title="Miễn sát thương" />}
+          {reflectStatus && reflectStatus.turnsLeft > 0 && <StatusBadge icon="🔁" label={`${reflectStatus.turnsLeft}`} title="Phản đòn" />}
+          {buffDamageMult && <StatusBadge icon="🔥" label={`x${buffDamageMult.mult}·${buffDamageMult.turnsLeft}`} title="Tăng sát thương" />}
+          {buffNextAttackMult && <StatusBadge icon="⚡" label={`x${buffNextAttackMult}`} title="Đòn tiếp theo tăng sát thương" />}
+          {boxingCatTurns > 0 && <StatusBadge icon="🥊" label={`${boxingCatTurns}`} title="Mèo đấm bốc hỗ trợ" />}
+          {poisonStatus && poisonStatus.turnsLeft > 0 && <StatusBadge icon="☠️" label={`Địch ${poisonStatus.turnsLeft}`} title="Địch trúng độc" />}
+        </div>
+      )}
+
       <div
-        className="relative flex items-center justify-between gap-2 overflow-hidden rounded-xl border border-amber-700/30 bg-slate-950/40 bg-cover bg-center p-2"
+        className="relative flex min-h-[170px] items-center justify-between gap-2 overflow-hidden rounded-xl border border-amber-700/30 bg-cover bg-center p-2"
         style={{ backgroundImage: `url(${map.field})` }}
       >
-        <div className="absolute inset-0 bg-slate-950/25" />
+        <div className="absolute inset-0 bg-slate-950/20" />
+        <span
+          className={`absolute left-1/2 top-2 z-20 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] font-bold shadow-lg ${
+            turn === "player" ? "bg-sky-600 text-white" : "bg-red-600 text-white"
+          }`}
+        >
+          {turn === "player" ? "Lượt của bạn" : "Lượt đối thủ"}
+        </span>
         {toast && <Toast key={toast.id} text={toast.text} kind={toast.kind} />}
         <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible">
           <div className="h-full w-full overflow-hidden">
@@ -700,14 +710,14 @@ export default function BattleScreen({
             <FloatingNumber key={f.id} value={f.value} kind={f.kind} style={{ left: "50%", top: "0%", transform: "translateX(-50%)" }} />
           ))}
           {boxingCatTurns > 0 && (
-            <div className="absolute -bottom-1 -right-3 z-20 h-10 w-10 overflow-hidden rounded-full border-2 border-amber-300 bg-slate-900 shadow-lg">
+            <div className="absolute -bottom-1 -right-3 z-20 h-10 w-10 overflow-hidden drop-shadow-lg">
               <AnimatedSprite src="/sprites/catboxing_idle.png" frames={10} fps={8} className="h-full w-full scale-150" />
             </div>
           )}
         </div>
         {shield > 0 && <span className="relative z-10 shrink-0 text-xs text-sky-300">🛡 +{shield}</span>}
         {enemyShield > 0 && <span className="relative z-10 shrink-0 text-xs text-red-300">🛡 +{enemyShield}</span>}
-        <div className="relative z-10 flex h-24 w-24 shrink-0 items-center justify-center overflow-visible">
+        <div className="relative z-10 flex h-32 w-32 shrink-0 items-center justify-center overflow-visible">
           <div className="h-full w-full overflow-hidden">
             <div key={enemyHitTick} className={`h-full w-full ${enemyHurt ? "anim-hurt" : enemyPose === "attack" ? "anim-attack-left" : ""}`}>
               <div className={`h-full w-full ${enemyDefeated ? "anim-dead" : ""}`}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CATS, ENEMIES, UPGRADES } from "@/lib/gameData";
-import { MAPS } from "@/lib/maps";
+import { MAPS, LEVELS } from "@/lib/maps";
 import { CatDefinition, EnemyDefinition, PlayerProfile } from "@/lib/types";
 import { loadProfile, saveProfile } from "@/lib/profile";
 import BattleScreen from "@/components/BattleScreen";
@@ -17,7 +17,7 @@ import CatPreviewModal from "@/components/CatPreviewModal";
 
 type View =
   | "menu" | "login" | "settings" | "info" | "multiplayer" | "shop"
-  | "teamSize" | "catPick" | "mapPick" | "battle" | "result" | "stub";
+  | "teamSize" | "catPick" | "levelSelect" | "battle" | "result" | "stub";
 
 export default function Home() {
   const [ready, setReady] = useState(false);
@@ -30,6 +30,7 @@ export default function Home() {
   const [previewCat, setPreviewCat] = useState<CatDefinition | null>(null);
   const [map, setMap] = useState(MAPS[0]);
   const [enemyTeam, setEnemyTeam] = useState<EnemyDefinition[]>([]);
+  const [activeLevel, setActiveLevel] = useState(1);
   const [lastResult, setLastResult] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -203,11 +204,7 @@ export default function Home() {
         )}
         {pickedCats.length === teamSize && (
           <button
-            onClick={() => {
-              const shuffled = [...ENEMIES].sort(() => Math.random() - 0.5).slice(0, teamSize);
-              setEnemyTeam(shuffled);
-              setView("mapPick");
-            }}
+            onClick={() => setView("levelSelect")}
             className="fixed bottom-6 rounded-lg bg-amber-500 px-6 py-3 font-bold text-slate-900 shadow-xl"
           >
             Tiếp tục →
@@ -217,27 +214,41 @@ export default function Home() {
     );
   }
 
-  if (view === "mapPick") {
+  if (view === "levelSelect") {
     return (
       <main className="flex min-h-dvh flex-col items-center gap-4 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 pt-10 text-white">
         <button onClick={() => setView("catPick")} className="self-start text-xs text-amber-300 underline">
           ← Đổi mèo
         </button>
-        <h2 className="text-lg font-bold text-amber-300">Chọn Bản Đồ</h2>
-        <div className="flex w-full max-w-sm flex-col gap-3 pb-4">
-          {MAPS.map((m) => (
-            <button
-              key={m.id}
-              onClick={() => {
-                setMap(m);
-                setView("battle");
-              }}
-              className="overflow-hidden rounded-xl border border-amber-600 bg-slate-900 hover:bg-slate-800"
-            >
-              <img src={m.thumb} alt={m.name} className="h-28 w-full object-cover" />
-              <p className="p-2 text-sm font-semibold text-amber-200">{m.name}</p>
-            </button>
-          ))}
+        <h2 className="text-lg font-bold text-amber-300">Chọn Màn Chơi</h2>
+        <p className="-mt-2 text-[11px] text-slate-400">Thắng màn hiện tại để mở màn tiếp theo</p>
+        <div className="grid w-full max-w-sm grid-cols-2 gap-3 pb-4">
+          {LEVELS.map((lvl) => {
+            const locked = lvl.id > profile.highestLevelUnlocked;
+            const lvlMap = MAPS.find((m) => m.id === lvl.mapId)!;
+            const opponents = ENEMIES.slice(lvl.enemyStartIndex, lvl.enemyStartIndex + teamSize);
+            return (
+              <button
+                key={lvl.id}
+                disabled={locked}
+                onClick={() => {
+                  setEnemyTeam(opponents.length === teamSize ? opponents : ENEMIES.slice(-teamSize));
+                  setMap(lvlMap);
+                  setActiveLevel(lvl.id);
+                  setView("battle");
+                }}
+                className={`relative overflow-hidden rounded-xl border ${locked ? "border-slate-700 opacity-50" : "border-amber-600 hover:bg-slate-800"} bg-slate-900`}
+              >
+                <img src={lvlMap.thumb} alt={lvlMap.name} className="h-20 w-full object-cover" />
+                <p className="p-1.5 text-xs font-bold text-amber-200">Màn {lvl.id}</p>
+                {locked && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                    <span className="text-2xl">🔒</span>
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       </main>
     );
@@ -253,7 +264,11 @@ export default function Home() {
           map={map}
           onExit={() => setView("menu")}
           onResult={(won) => {
-            if (won) updateProfile({ ...profile, gold: profile.gold + 30 + teamSize * 10 });
+            if (won) {
+              const goldEarned = 30 + teamSize * 10 + activeLevel * 5;
+              const nextUnlock = activeLevel === profile.highestLevelUnlocked ? Math.min(LEVELS.length, activeLevel + 1) : profile.highestLevelUnlocked;
+              updateProfile({ ...profile, gold: profile.gold + goldEarned, highestLevelUnlocked: nextUnlock });
+            }
             setLastResult(won);
             setView("result");
           }}
@@ -263,14 +278,15 @@ export default function Home() {
   }
 
   if (view === "result") {
+    const goldEarned = 30 + teamSize * 10 + activeLevel * 5;
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-6 bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 p-6 text-white">
         <p className="text-3xl">{lastResult ? "🎉" : "💀"}</p>
         <h2 className="text-xl font-bold text-amber-300">{lastResult ? "Chiến thắng!" : "Thất bại"}</h2>
-        {lastResult && <p className="text-sm text-amber-100">+{30 + teamSize * 10} vàng</p>}
+        {lastResult && <p className="text-sm text-amber-100">+{goldEarned} vàng</p>}
         <div className="flex gap-3">
-          <button onClick={() => setView("teamSize")} className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-slate-900">
-            Đấu tiếp
+          <button onClick={() => setView("levelSelect")} className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-slate-900">
+            Chọn màn khác
           </button>
           <button onClick={() => setView("menu")} className="rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-200">
             Menu chính

@@ -66,8 +66,14 @@ export const SKILLS_BY_CAT: Record<string, SkillTier[]> = {
   ],
   cat8: [
     { tier: 1, cost: 1, name: "Dưỡng Sức", desc: "+15 máu", effect: { healFlat: 15 } },
-    { tier: 2, cost: 2, name: "Tăng Tốc", desc: "+1 lượt đánh", effect: { extraTurns: 1 } },
-    { tier: 3, cost: 3, name: "Triệu Hồi", desc: "Gọi mèo đấm bốc hỗ trợ 3 lượt", effect: { summonBoxingCat: { turns: 3 } } },
+    { tier: 2, cost: 2, name: "Tăng Tốc", desc: "+3 lượt đánh", effect: { extraTurns: 3 } },
+    {
+      tier: 3,
+      cost: 3,
+      name: "Triệu Hồi",
+      desc: "Gọi mèo đấm bốc, mỗi lượt ghép xong sẽ đấm thêm (ghép 3-4 ô: x3, ghép 5+ ô: x5) trong 3 lượt",
+      effect: { summonBoxingCat: { turns: 3 } },
+    },
   ],
   cat9: [
     { tier: 1, cost: 1, name: "Phản Đòn", desc: "Phản sát thương địch 1 lượt", effect: { reflect: { turns: 1, mult: 1 } } },

@@ -9,6 +9,7 @@ export function defaultProfile(): PlayerProfile {
     notificationsEnabled: true,
     gold: 100,
     upgradeLevels: {},
+    highestLevelUnlocked: 1,
   };
 }
 
